@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1220">
+  <title>Checkers — Think. Move. Win.</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="script.js" defer></script>
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand-mark" aria-hidden="true">♛</div>
+      <div>
+        <p class="eyebrow">STRATEGY • FOCUS • FUN</p>
+        <h1>Checkers</h1>
+        <p class="subtitle">Think. Move. Win.</p>
+      </div>
+      <button id="newGameTop" class="icon-button" type="button" aria-label="Start a new game" title="New game">↻</button>
+    </header>
+
+    <section class="toolbar panel">
+      <div class="control-group">
+        <label for="modeSelect">Game mode</label>
+        <select id="modeSelect">
+          <option value="local">Two players — same device</option>
+          <option value="computer">Play against computer</option>
+        </select>
+      </div>
+      <div class="control-group" id="difficultyGroup">
+        <label for="difficultySelect">Computer level</label>
+        <select id="difficultySelect">
+          <option value="1">Easy</option>
+          <option value="2" selected>Medium</option>
+          <option value="3">Hard</option>
+        </select>
+      </div>
+      <button id="newGame" class="button button-primary" type="button">New game</button>
+    </section>
+
+    <section class="game-layout">
+      <section class="board-panel panel" aria-label="Checkers game">
+        <div class="board-heading">
+          <div>
+            <p class="eyebrow">CURRENT MATCH</p>
+            <h2 id="statusTitle" aria-live="polite">Red's turn</h2>
+          </div>
+          <span id="turnPill" class="turn-pill red-pill">RED TURN</span>
+        </div>
+        <div class="board-wrap">
+          <div class="coordinate coordinate-top" aria-hidden="true">
+            <span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span><span>G</span><span>H</span>
+          </div>
+          <div class="board-row">
+            <div class="coordinate coordinate-side" aria-hidden="true">
+              <span>8</span><span>7</span><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span>
+            </div>
+            <div id="board" class="board" role="grid" aria-label="Checkers board"></div>
+            <div class="coordinate coordinate-side" aria-hidden="true">
+              <span>8</span><span>7</span><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span>
+            </div>
+          </div>
+          <div class="coordinate coordinate-bottom" aria-hidden="true">
+            <span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span><span>G</span><span>H</span>
+          </div>
+        </div>
+        <p class="board-hint" id="boardHint">Select a red piece to see its legal moves.</p>
+      </section>
+
+      <aside class="side-column">
+        <section class="panel player-panel">
+          <div class="player-row">
+            <span class="piece-preview red-piece" aria-hidden="true"></span>
+            <div class="player-info"><strong>Red</strong><span id="redRole">Player 1</span></div>
+            <strong class="piece-count" id="redCount">12</strong>
+          </div>
+          <div class="player-row">
+            <span class="piece-preview black-piece" aria-hidden="true"></span>
+            <div class="player-info"><strong>Black</strong><span id="blackRole">Player 2</span></div>
+            <strong class="piece-count" id="blackCount">12</strong>
+          </div>
+          <div class="stats-row">
+            <div><span class="stat-label">Moves</span><strong id="moveCount">0</strong></div>
+            <div><span class="stat-label">Captures</span><strong id="captureCount">0</strong></div>
+          </div>
+        </section>
+
+        <section class="panel actions-panel">
+          <button id="undoButton" class="button button-secondary" type="button">↶ Undo move</button>
+          <button id="hintButton" class="button button-secondary" type="button">✦ Show legal moves</button>
+          <button id="flipButton" class="button button-secondary" type="button">⇅ Flip board</button>
+        </section>
+
+        <section class="panel rules-panel">
+          <h3>How to play</h3>
+          <ul>
+            <li>Move diagonally on dark squares.</li>
+            <li>Capture by jumping over an opponent.</li>
+            <li>Captures are mandatory in this version.</li>
+            <li>Reach the far side to become a king.</li>
+            <li>Capture or block every opponent piece to win.</li>
+          </ul>
+          <p class="rules-note">Rules: American checkers • 8×8 board</p>
+        </section>
+      </aside>
+    </section>
+
+    <footer class="footer">
+      <span>CHECKERS PROJECT</span>
+    </footer>
+  </main>
+
+  <div id="resultModal" class="modal-backdrop" hidden>
+    <section class="modal panel" role="dialog" aria-modal="true" aria-labelledby="resultTitle">
+      <div id="resultIcon" class="result-icon">♛</div>
+      <p class="eyebrow">MATCH COMPLETE</p>
+      <h2 id="resultTitle">Red wins!</h2>
+      <p id="resultText">All opposing pieces have been captured or blocked.</p>
+      <button id="playAgainButton" class="button button-primary" type="button">Play again</button>
+    </section>
+  </div>
+  <div id="liveMessage" class="sr-only" aria-live="polite"></div>
+</body>
+</html>
