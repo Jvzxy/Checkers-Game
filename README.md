@@ -1,4 +1,4 @@
-# Checkers Game
+# Checkers Game : https://jvzxy.github.io/Checkers-Game/
 
 **Author:** Jussy Jay G. Durain  
 **Section:** BSIT-3R4  
