@@ -17,27 +17,12 @@
         <h1>Checkers</h1>
         <p class="subtitle">Think. Move. Win.</p>
       </div>
-      <button id="newGameTop" class="icon-button" type="button" aria-label="Start a new game" title="New game">↻</button>
+      <div class="topbar-actions">
+        <button id="ratingPill" class="rating-pill" type="button" aria-label="Open leaderboard"></button>
+        <button id="tutorialTop" class="button button-secondary" type="button">? How to play</button>
+        <button id="newGameTop" class="button button-primary" type="button">New game</button>
+      </div>
     </header>
-
-    <section class="toolbar panel">
-      <div class="control-group">
-        <label for="modeSelect">Game mode</label>
-        <select id="modeSelect">
-          <option value="local">Two players — same device</option>
-          <option value="computer">Play against computer</option>
-        </select>
-      </div>
-      <div class="control-group" id="difficultyGroup">
-        <label for="difficultySelect">Computer level</label>
-        <select id="difficultySelect">
-          <option value="1">Easy</option>
-          <option value="2" selected>Medium</option>
-          <option value="3">Hard</option>
-        </select>
-      </div>
-      <button id="newGame" class="button button-primary" type="button">New game</button>
-    </section>
 
     <section class="game-layout">
       <section class="board-panel panel" aria-label="Checkers game">
@@ -73,11 +58,13 @@
           <div class="player-row">
             <span class="piece-preview red-piece" aria-hidden="true"></span>
             <div class="player-info"><strong>Red</strong><span id="redRole">Player 1</span></div>
+            <span class="clock" id="redClock" role="timer">5:00</span>
             <strong class="piece-count" id="redCount">12</strong>
           </div>
           <div class="player-row">
             <span class="piece-preview black-piece" aria-hidden="true"></span>
             <div class="player-info"><strong>Black</strong><span id="blackRole">Player 2</span></div>
+            <span class="clock" id="blackClock" role="timer">5:00</span>
             <strong class="piece-count" id="blackCount">12</strong>
           </div>
           <div class="stats-row">
@@ -86,10 +73,16 @@
           </div>
         </section>
 
+        <section class="panel ladder-panel" id="ladderPanel" hidden>
+          <h3>Challenge ladder</h3>
+          <ol class="ladder" id="ladderSteps"></ol>
+        </section>
+
         <section class="panel actions-panel">
           <button id="undoButton" class="button button-secondary" type="button">↶ Undo move</button>
           <button id="hintButton" class="button button-secondary" type="button">✦ Show legal moves</button>
           <button id="flipButton" class="button button-secondary" type="button">⇅ Flip board</button>
+          <button id="soundButton" class="button button-secondary" type="button" aria-pressed="false">🔊 Sound on</button>
         </section>
 
         <section class="panel rules-panel">
@@ -97,9 +90,10 @@
           <ul>
             <li>Move diagonally on dark squares.</li>
             <li>Capture by jumping over an opponent.</li>
-            <li>Captures are mandatory in this version.</li>
+            <li>Captures are optional. Jump only when you want to.</li>
             <li>Reach the far side to become a king.</li>
             <li>Capture or block every opponent piece to win.</li>
+            <li>Run out of time and you lose the match.</li>
           </ul>
           <p class="rules-note">Rules: American checkers • 8×8 board</p>
         </section>
@@ -111,15 +105,115 @@
     </footer>
   </main>
 
+  <div id="welcomeModal" class="modal-backdrop" hidden>
+    <section class="modal panel welcome-modal" role="dialog" aria-modal="true" aria-labelledby="welcomeTitle">
+      <div class="checker-strip" aria-hidden="true"></div>
+      <h2 id="welcomeTitle" class="pixel-title" aria-label="Welcome to Checkers Game">
+        <span class="pixel pixel-gold" style="--px:4px" data-pixel="Welcome to"></span>
+        <span class="pixel" style="--px:7px" data-pixel="Checkers" data-delay="350"></span>
+        <span class="pixel pixel-red" style="--px:7px" data-pixel="Game" data-delay="750"></span>
+      </h2>
+      <p class="welcome-sub">Think. Move. Win.</p>
+      <button id="playButton" class="button button-play" type="button">▶ Play</button>
+      <div class="welcome-links">
+        <button id="tutorialButton" class="button button-secondary" type="button">👀 How to play</button>
+        <button id="leaderboardButton" class="button button-secondary" type="button">🏅 Leaderboard</button>
+      </div>
+      <div class="checker-strip" aria-hidden="true"></div>
+    </section>
+  </div>
+
+  <div id="startModal" class="modal-backdrop" hidden>
+    <section class="modal panel setup-modal" role="dialog" aria-modal="true" aria-labelledby="setupTitle">
+      <p class="eyebrow">NEW MATCH</p>
+      <h2 id="setupTitle" class="pixel-title" aria-label="What mode you want to play?">
+        <span class="pixel" style="--px:5px" data-pixel="What mode you"></span>
+        <span class="pixel" style="--px:5px" data-pixel="want to play?" data-delay="250"></span>
+      </h2>
+      <div class="mode-options" role="radiogroup" aria-labelledby="setupTitle">
+        <label class="mode-card">
+          <input type="radio" name="startMode" value="local" checked>
+          <span class="mode-icon" aria-hidden="true">👥</span>
+          <span class="mode-text"><strong>Two players</strong><small>Share one device and take turns.</small></span>
+        </label>
+        <label class="mode-card">
+          <input type="radio" name="startMode" value="practice">
+          <span class="mode-icon" aria-hidden="true">🎯</span>
+          <span class="mode-text"><strong>Practice</strong><small>Unranked. A relaxed game against an easy computer.</small></span>
+        </label>
+        <label class="mode-card">
+          <input type="radio" name="startMode" value="challenge">
+          <span class="mode-icon" aria-hidden="true">🏆</span>
+          <span class="mode-text"><strong>Level Challenge <em class="tag">Ranked</em></strong><small>Climb the leaderboard. Beat a level to unlock the next one.</small></span>
+        </label>
+      </div>
+      <div class="level-picker" id="levelPicker" hidden>
+        <p class="picker-label" id="levelPickerLabel"><span>Choose a level</span><button id="resetProgress" class="tut-skip" type="button" hidden>Reset progress</button></p>
+        <div class="level-grid" id="levelGrid" role="radiogroup" aria-labelledby="levelPickerLabel"></div>
+        <p class="level-caption" id="levelCaption" aria-live="polite"></p>
+      </div>
+      <div class="setup-row">
+        <div class="control-group">
+          <label for="setupTime">Time per player</label>
+          <select id="setupTime">
+            <option value="300" selected>5 minutes</option>
+            <option value="600">10 minutes</option>
+            <option value="900">15 minutes</option>
+          </select>
+        </div>
+      </div>
+      <button id="startGameButton" class="button button-primary" type="button">Start game</button>
+    </section>
+  </div>
+
   <div id="resultModal" class="modal-backdrop" hidden>
     <section class="modal panel" role="dialog" aria-modal="true" aria-labelledby="resultTitle">
       <div id="resultIcon" class="result-icon">♛</div>
       <p class="eyebrow">MATCH COMPLETE</p>
       <h2 id="resultTitle">Red wins!</h2>
       <p id="resultText">All opposing pieces have been captured or blocked.</p>
+      <div id="ratingChange" class="rating-change" hidden></div>
       <button id="playAgainButton" class="button button-primary" type="button">Play again</button>
+      <button id="menuButton" class="button button-secondary" type="button" hidden>Change mode</button>
+      <button id="resultBoard" class="tut-skip" type="button" hidden>🏅 View leaderboard</button>
     </section>
   </div>
+  <div id="tutorialModal" class="modal-backdrop" hidden>
+    <section class="modal panel tutorial-modal" role="dialog" aria-modal="true" aria-labelledby="tutTitle">
+      <p class="eyebrow" id="tutStep">STEP 1 OF 7</p>
+      <div id="tutStage" class="tut-stage" aria-hidden="true"></div>
+      <h2 id="tutTitle"></h2>
+      <p id="tutText"></p>
+      <div class="tut-dots" id="tutDots" aria-hidden="true"></div>
+      <div class="tut-actions">
+        <button id="tutPrev" class="button button-secondary" type="button">← Back</button>
+        <button id="tutNext" class="button button-primary" type="button">Next →</button>
+      </div>
+      <button id="tutSkip" class="tut-skip" type="button">Skip tutorial</button>
+    </section>
+  </div>
+
+  <div id="leaderboardModal" class="modal-backdrop" hidden>
+    <section class="modal panel leaderboard-modal" role="dialog" aria-modal="true" aria-labelledby="lbTitle">
+      <p class="eyebrow">RANKED · SAVED ON THIS DEVICE</p>
+      <h2 id="lbTitle">Leaderboard</h2>
+      <div class="lb-profile">
+        <div class="lb-badge" id="lbBadge" aria-hidden="true"></div>
+        <div class="lb-who">
+          <input id="lbName" class="name-input" maxlength="14" aria-label="Your name" placeholder="Your name">
+          <span class="lb-tier" id="lbTier"></span>
+          <div class="lb-bar" aria-hidden="true"><i id="lbBarFill"></i></div>
+          <small class="lb-next" id="lbNext"></small>
+        </div>
+        <strong class="lb-rating" id="lbRating"></strong>
+      </div>
+      <ol class="lb-list" id="lbList"></ol>
+      <div class="lb-stats" id="lbStats"></div>
+      <button id="lbClose" class="button button-primary" type="button">Close</button>
+    </section>
+  </div>
+
+  <div id="levelBanner" class="level-banner" hidden aria-hidden="true"></div>
   <div id="liveMessage" class="sr-only" aria-live="polite"></div>
 </body>
 </html>

@@ -4,70 +4,441 @@
   const SIZE = 8;
   const RED = "red";
   const BLACK = "black";
-  const boardEl = document.getElementById("board");
-  const modeSelect = document.getElementById("modeSelect");
-  const difficultySelect = document.getElementById("difficultySelect");
-  const difficultyGroup = document.getElementById("difficultyGroup");
-  const statusTitle = document.getElementById("statusTitle");
-  const turnPill = document.getElementById("turnPill");
-  const boardHint = document.getElementById("boardHint");
-  const redCountEl = document.getElementById("redCount");
-  const blackCountEl = document.getElementById("blackCount");
-  const moveCountEl = document.getElementById("moveCount");
-  const captureCountEl = document.getElementById("captureCount");
-  const redRole = document.getElementById("redRole");
-  const blackRole = document.getElementById("blackRole");
-  const modal = document.getElementById("resultModal");
-  const resultTitle = document.getElementById("resultTitle");
-  const resultText = document.getElementById("resultText");
-  const liveMessage = document.getElementById("liveMessage");
+  const FILES = "ABCDEFGH";
+  const $ = id => document.getElementById(id);
+  const boardEl = $("board");
+  const statusTitle = $("statusTitle");
+  const turnPill = $("turnPill");
+  const boardHint = $("boardHint");
+  const redCountEl = $("redCount");
+  const blackCountEl = $("blackCount");
+  const moveCountEl = $("moveCount");
+  const captureCountEl = $("captureCount");
+  const redRole = $("redRole");
+  const blackRole = $("blackRole");
+  const modal = $("resultModal");
+  const resultTitle = $("resultTitle");
+  const resultText = $("resultText");
+  const liveMessage = $("liveMessage");
+
+  // Chosen on the start screen; can only change by starting a new game.
+  const settings = { mode: "local", level: 1, time: 300 };
+  let cleared = loadProgress(); // how many challenge levels the player has beaten (saved)
+  let pickedLevel = 1;          // level highlighted on the start screen
+  let resultAction = "again"; // what the result button does: again | next | retry
+  let bannerTimer = null;
 
   let state;
-  let selected = null;
-  let legalMoves = [];
-  let history = [];
+  let selected = null;      // [r, c] of the selected piece
+  let legalMoves = [];      // single-step moves available to the current player
+  let history = [];         // snapshots taken at the start of each turn
   let flipped = false;
   let gameOver = false;
   let aiThinking = false;
   let aiTimer = null;
-  let forcedPiece = null;
+  let forcedPiece = null;   // piece that must keep jumping
+  let showHints = false;
+  let lastLanded = null;    // square of the piece that just moved (for its landing animation)
+  let started = false;      // false while the start screen is open
+
+  const name = color => (color === RED ? "Red" : "Black");
+
+  /* ---------- Pixel lettering & UI effects ---------- */
+
+  // 5x7 bitmap font; rows are separated by "/".
+  const FONT = {
+    A: ".###./#...#/#...#/#####/#...#/#...#/#...#",
+    B: "####./#...#/#...#/####./#...#/#...#/####.",
+    C: ".###./#...#/#..../#..../#..../#...#/.###.",
+    D: "####./#...#/#...#/#...#/#...#/#...#/####.",
+    E: "#####/#..../#..../####./#..../#..../#####",
+    F: "#####/#..../#..../####./#..../#..../#....",
+    G: ".###./#...#/#..../#.###/#...#/#...#/.####",
+    H: "#...#/#...#/#...#/#####/#...#/#...#/#...#",
+    I: "#####/..#../..#../..#../..#../..#../#####",
+    J: "..###/...#./...#./...#./...#./#..#./.##..",
+    K: "#...#/#..#./#.#../##.../#.#../#..#./#...#",
+    L: "#..../#..../#..../#..../#..../#..../#####",
+    M: "#...#/##.##/#.#.#/#.#.#/#...#/#...#/#...#",
+    N: "#...#/##..#/#.#.#/#..##/#...#/#...#/#...#",
+    O: ".###./#...#/#...#/#...#/#...#/#...#/.###.",
+    P: "####./#...#/#...#/####./#..../#..../#....",
+    Q: ".###./#...#/#...#/#...#/#.#.#/#..#./.##.#",
+    R: "####./#...#/#...#/####./#.#../#..#./#...#",
+    S: ".####/#..../#..../.###./....#/....#/####.",
+    T: "#####/..#../..#../..#../..#../..#../..#..",
+    U: "#...#/#...#/#...#/#...#/#...#/#...#/.###.",
+    V: "#...#/#...#/#...#/#...#/#...#/.#.#./..#..",
+    W: "#...#/#...#/#...#/#.#.#/#.#.#/##.##/#...#",
+    X: "#...#/#...#/.#.#./..#../.#.#./#...#/#...#",
+    Y: "#...#/#...#/.#.#./..#../..#../..#../..#..",
+    Z: "#####/....#/...#./..#../.#.../#..../#####",
+    "?": ".###./#...#/....#/...#./..#../...../..#..",
+    "!": "..#../..#../..#../..#../..#../...../..#..",
+    0: ".###./#...#/#..##/#.#.#/##..#/#...#/.###.",
+    1: "..#../.##../..#../..#../..#../..#../.###.",
+    2: ".###./#...#/....#/...#./..#../.#.../#####",
+    3: "####./....#/....#/.###./....#/....#/####.",
+    4: "...#./..##./.#.#./#..#./#####/...#./...#.",
+    5: "#####/#..../####./....#/....#/#...#/.###.",
+    6: "..##./.#.../#..../####./#...#/#...#/.###.",
+    7: "#####/....#/...#./..#../.#.../.#.../.#...",
+    8: ".###./#...#/#...#/.###./#...#/#...#/.###.",
+    9: ".###./#...#/#...#/.####/....#/...#./.##..",
+  };
+
+  // Draws text as pixel art (inline SVG). Each letter drops in one after another.
+  function pixelSVG(text, delay = 0) {
+    let x = 0, glyphs = "";
+    [...text.toUpperCase()].forEach((ch, i) => {
+      if (ch === " ") { x += 3; return; }
+      let d = "";
+      (FONT[ch] || FONT["?"]).split("/").forEach((row, y) =>
+        [...row].forEach((v, k) => { if (v === "#") d += `M${x + k} ${y}h1v1h-1z`; }));
+      glyphs += `<g class="px-glyph" style="animation-delay:${delay + i * 45}ms"><path class="px-shade" transform="translate(1 1)" d="${d}"/><path class="px-fill" d="${d}"/></g>`;
+      x += 6;
+    });
+    return `<svg viewBox="0 0 ${x} 8" style="--cols:${x}" aria-hidden="true" shape-rendering="crispEdges">${glyphs}</svg>`;
+  }
+  document.querySelectorAll("[data-pixel]").forEach(el => {
+    el.innerHTML = pixelSVG(el.dataset.pixel, Number(el.dataset.delay || 0));
+  });
+
+  // Plays the closing animation, then hides the modal and runs `done`.
+  function closeModal(el, done) {
+    if (el.classList.contains("leaving")) return;
+    el.classList.add("leaving");
+    setTimeout(() => { el.hidden = true; el.classList.remove("leaving"); done(); }, 260);
+  }
+
+  // Ripple on every button / mode card click.
+  document.addEventListener("pointerdown", e => {
+    const target = e.target.closest(".button, .mode-card");
+    if (!target) return;
+    const rect = target.getBoundingClientRect();
+    const size = Math.max(rect.width, rect.height) * 2;
+    const ripple = document.createElement("span");
+    ripple.className = "ripple";
+    ripple.style.cssText = `width:${size}px;height:${size}px;left:${e.clientX - rect.left - size / 2}px;top:${e.clientY - rect.top - size / 2}px`;
+    target.appendChild(ripple);
+    ripple.addEventListener("animationend", () => ripple.remove());
+  });
+
+  /* ---------- AI levels & challenge ladder ---------- */
+
+  const LEVELS = [
+    { name: "Rookie",     icon: "🌱", depth: 0, blunder: 1 },    // random moves
+    { name: "Apprentice", icon: "⚔️", depth: 2, blunder: 0.3 },  // thinks 2 turns ahead, often slips
+    { name: "Challenger", icon: "🛡️", depth: 3, blunder: 0 },
+    { name: "Expert",     icon: "🔥", depth: 5, blunder: 0 },
+    { name: "Master",     icon: "👑", depth: 6, blunder: 0 },
+  ];
+
+  function loadProgress() {
+    try { return Math.min(5, Math.max(0, Number(localStorage.getItem("checkers.cleared")) || 0)); }
+    catch { return 0; }
+  }
+  function saveProgress() {
+    try { localStorage.setItem("checkers.cleared", String(cleared)); } catch { /* storage unavailable */ }
+  }
+
+  function renderLadder() {
+    $("ladderPanel").hidden = !(started && settings.mode === "challenge");
+    $("ladderSteps").innerHTML = LEVELS.map((L, i) => {
+      const n = i + 1;
+      const cls = n === settings.level ? "current" : n <= cleared ? "done" : n === cleared + 1 ? "open" : "locked";
+      const mark = { current: "▶", locked: "🔒", done: "✓", open: "" }[cls];
+      return `<li class="${cls}"><span>${L.icon}</span>Level ${n} · ${L.name}<em>${mark}</em></li>`;
+    }).join("");
+  }
+
+  function showLevelBanner() {
+    const L = LEVELS[settings.level - 1];
+    $("levelBanner").innerHTML = `<span class="pixel pixel-gold" style="--px:6px">${pixelSVG("Level " + settings.level)}</span><strong>${L.icon} ${L.name}</strong>`;
+    $("levelBanner").hidden = false;
+    clearTimeout(bannerTimer);
+    bannerTimer = setTimeout(() => { $("levelBanner").hidden = true; }, 1900);
+  }
+
+  /* ---------- Visual tutorial ---------- */
+
+  const mp = (color, r, c, cls = "", vars = "") => `<i class="mp ${color} ${cls}" style="--r:${r};--c:${c};${vars}"></i>`;
+  const mk = (type, r, c) => `<i class="mk ${type}" style="--r:${r};--c:${c}"></i>`;
+  const mini = (n, inner) => `<div class="mini" style="--n:${n}">${inner}</div>`;
+
+  let setupPieces = "";
+  for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+    if ((r + c) % 2 === 1 && (r < 3 || r > 4)) setupPieces += mp(r < 3 ? "black" : "red", r, c, "a-pop", `--i:${(r * 3 + c) % 14}`);
+  }
+
+  const TUTORIAL = [
+    { title: "Set up the board", text: "Each side has 12 pieces on the dark squares. Red moves first.", visual: mini(8, setupPieces) },
+    { title: "Move diagonally", text: "Pick a piece, then tap a green dot. Regular pieces only move forward.",
+      visual: mini(6, mk("move", 3, 2) + mp("red", 4, 1, "a-move", "--dx:1;--dy:-1")) },
+    { title: "Jump to capture", text: "Hop over an enemy into the empty square behind it. Gold rings mark captures, and you can skip them.",
+      visual: mini(6, mk("jump", 2, 3) + mp("black", 3, 2, "a-gone1") + mp("red", 4, 1, "a-move", "--dx:2;--dy:-2")) },
+    { title: "Chain your jumps", text: "Another jump open after landing? Keep going! Tap your piece again to stop early.",
+      visual: mini(6, mk("jump", 3, 2) + mk("jump", 1, 4) + mp("black", 4, 1, "a-gone1") + mp("black", 2, 3, "a-gone2") +
+        mp("red", 5, 0, "a-chain", "--dx1:2;--dy1:-2;--dx2:4;--dy2:-4")) },
+    { title: "Become a king", text: "Reach the far row to earn a crown. Kings can move and jump backwards too.",
+      visual: mini(6, mk("move", 0, 3) + mp("red", 1, 2, "a-move crowns", "--dx:1;--dy:-1")) },
+    { title: "How to win", text: "Capture every piece, leave them with no legal move, or watch their clock hit zero.",
+      visual: `<div class="tut-chips"><span class="chip" style="--d:0">💥<b>Capture all</b></span><span class="chip" style="--d:1">🚧<b>Block them</b></span><span class="chip" style="--d:2">⏱️<b>Beat the clock</b></span></div>` },
+    { title: "Climb the ladder", text: "In Level Challenge, only Level 1 is open. Beat a level to unlock the next, stronger computer.",
+      visual: `<div class="tut-ladder">${LEVELS.map((L, i) => `<span style="--i:${i}">${L.icon}<b>L${i + 1}</b></span>`).join("")}</div>` },
+  ];
+
+  const tutorialModal = $("tutorialModal");
+  let tutIndex = 0;
+
+  function renderTutorial() {
+    const t = TUTORIAL[tutIndex];
+    $("tutStep").textContent = `STEP ${tutIndex + 1} OF ${TUTORIAL.length}`;
+    $("tutStage").innerHTML = t.visual;
+    $("tutTitle").textContent = t.title;
+    $("tutText").textContent = t.text;
+    $("tutDots").innerHTML = TUTORIAL.map((_, i) => `<i class="${i === tutIndex ? "on" : ""}"></i>`).join("");
+    $("tutPrev").disabled = tutIndex === 0;
+    $("tutNext").textContent = tutIndex === TUTORIAL.length - 1 ? "Let's play!" : "Next →";
+  }
+
+  function openTutorial() {
+    tutIndex = 0;
+    renderTutorial();
+    tutorialModal.hidden = false;
+    $("tutNext").focus();
+  }
+
+  const closeTutorial = () => closeModal(tutorialModal, () => {});
+
+  function tutorialStep(dir) {
+    if (dir > 0 && tutIndex === TUTORIAL.length - 1) { closeTutorial(); return; }
+    tutIndex = Math.min(TUTORIAL.length - 1, Math.max(0, tutIndex + dir));
+    renderTutorial();
+  }
+
+  document.addEventListener("keydown", e => {
+    if (tutorialModal.hidden) return;
+    if (e.key === "ArrowRight") tutorialStep(1);
+    else if (e.key === "ArrowLeft") tutorialStep(-1);
+    else if (e.key === "Escape") closeTutorial();
+  });
+
+  /* ---------- Rating & leaderboard (saved on this device) ---------- */
+
+  const TIERS = [
+    { name: "Bronze", icon: "🥉", min: 0 }, { name: "Silver", icon: "🥈", min: 800 }, { name: "Gold", icon: "🥇", min: 1100 },
+    { name: "Platinum", icon: "💠", min: 1400 }, { name: "Diamond", icon: "💎", min: 1700 }, { name: "Legend", icon: "🔥", min: 2000 },
+  ];
+  const BOT_RATING = [500, 850, 1200, 1550, 1900];       // one per computer level
+  const DEFAULT_PROFILE = { name: "You", rating: 600, peak: 600, wins: 0, losses: 0, streak: 0, best: 0 };
+  const tierOf = r => [...TIERS].reverse().find(t => r >= t.min);
+  const esc = str => str.replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+  const leaderboardModal = $("leaderboardModal");
+
+  function loadProfile() {
+    try {
+      const p = JSON.parse(localStorage.getItem("checkers.profile"));
+      if (p && typeof p.rating === "number") return { ...DEFAULT_PROFILE, ...p };
+    } catch { /* ignore */ }
+    return { ...DEFAULT_PROFILE };
+  }
+  let profile = loadProfile();
+  function saveProfile() {
+    try { localStorage.setItem("checkers.profile", JSON.stringify(profile)); } catch { /* storage unavailable */ }
+  }
+
+  function renderRatingPill() {
+    const t = tierOf(profile.rating);
+    $("ratingPill").textContent = `${t.icon} ${t.name} · ${profile.rating}`;
+  }
+
+  // Elo against the computer's fixed rating. Only Level Challenge games are ranked.
+  function applyRating(win, level) {
+    const before = profile.rating;
+    const expected = 1 / (1 + 10 ** ((BOT_RATING[level - 1] - before) / 400));
+    let delta = Math.round(32 * ((win ? 1 : 0) - expected));
+    delta = win ? Math.max(1, delta) : Math.min(-1, delta);
+    profile.rating = Math.max(100, before + delta);
+    profile.peak = Math.max(profile.peak, profile.rating);
+    if (win) { profile.wins++; profile.streak++; profile.best = Math.max(profile.best, profile.streak); }
+    else { profile.losses++; profile.streak = 0; }
+    saveProfile();
+    renderRatingPill();
+    return { before, after: profile.rating, delta: profile.rating - before };
+  }
+
+  function showRatingChange(r, win) {
+    const was = tierOf(r.before), now = tierOf(r.after);
+    $("ratingChange").innerHTML =
+      `<strong class="delta ${r.delta >= 0 ? "up" : "down"}">${r.delta >= 0 ? "+" : ""}${r.delta}</strong>` +
+      `<span>Rating ${r.before} → ${r.after} · ${now.icon} ${now.name}</span>` +
+      (now.min > was.min ? `<em>🎉 Promoted to ${now.icon} ${now.name}!</em>` : "") +
+      (now.min < was.min ? `<em class="demo">Dropped to ${now.icon} ${now.name}</em>` : "") +
+      (win && profile.streak >= 2 ? `<em>🔥 ${profile.streak} win streak</em>` : "");
+    $("ratingChange").hidden = false;
+  }
+
+  function renderLeaderboard() {
+    const tier = tierOf(profile.rating), next = TIERS.find(t => t.min > profile.rating);
+    const games = profile.wins + profile.losses;
+    $("lbBadge").textContent = tier.icon;
+    $("lbTier").textContent = `${tier.name} tier`;
+    $("lbRating").textContent = profile.rating;
+    $("lbBarFill").style.width = `${next ? ((profile.rating - tier.min) / (next.min - tier.min)) * 100 : 100}%`;
+    $("lbNext").textContent = next ? `${next.min - profile.rating} pts to ${next.icon} ${next.name}` : "Top tier reached";
+    const rows = [{ me: true, name: profile.name.trim() || "You", rating: profile.rating, icon: tier.icon, tag: tier.name },
+      ...LEVELS.map((L, i) => ({ name: `${L.name} Bot`, rating: BOT_RATING[i], icon: L.icon, tag: `Level ${i + 1}` }))]
+      .sort((a, b) => b.rating - a.rating || b.me - a.me);
+    $("lbList").innerHTML = rows.map((r, i) =>
+      `<li class="${r.me ? "me" : ""}"><span class="lb-rank">${i + 1}</span><span class="lb-icon">${r.icon}</span>` +
+      `<span class="lb-name">${esc(r.name)}${r.me ? " (you)" : ""}<small>${r.tag}</small></span><b>${r.rating}</b></li>`).join("");
+    $("lbStats").innerHTML = [["Peak", profile.peak], ["Win rate", games ? `${Math.round((profile.wins / games) * 100)}%` : "–"],
+      ["Streak", `🔥 ${profile.streak}`], ["Best", profile.best]].map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join("");
+  }
+
+  function openLeaderboard() {
+    renderLeaderboard();
+    $("lbName").value = profile.name;
+    leaderboardModal.hidden = false;
+    $("lbClose").focus();
+  }
+  const closeLeaderboard = () => closeModal(leaderboardModal, () => {});
+
+  $("lbName").addEventListener("input", e => { profile.name = e.target.value.slice(0, 14); saveProfile(); renderLeaderboard(); });
+  $("lbClose").addEventListener("click", closeLeaderboard);
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && !leaderboardModal.hidden) closeLeaderboard(); });
+  renderRatingPill();
+
+  /* ---------- Sound ---------- */
+
+  let audioCtx = null;
+  let muted = false;
+
+  function getAudio() {
+    if (!audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) audioCtx = new AC();
+    }
+    if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+    return audioCtx;
+  }
+
+  // A short crunch plus a low thud when a piece is captured.
+  function playCaptureSound() {
+    const ctx = muted ? null : getAudio();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const len = Math.floor(ctx.sampleRate * 0.16);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2);
+    const noise = ctx.createBufferSource();
+    noise.buffer = buf;
+    const filter = ctx.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.value = 1600;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.5, t);
+    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+    noise.connect(filter).connect(ng).connect(ctx.destination);
+    noise.start(t);
+
+    const osc = ctx.createOscillator();
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(240, t);
+    osc.frequency.exponentialRampToValueAtTime(55, t + 0.2);
+    const og = ctx.createGain();
+    og.gain.setValueAtTime(0.6, t);
+    og.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+    osc.connect(og).connect(ctx.destination);
+    osc.start(t);
+    osc.stop(t + 0.25);
+  }
+
+  function playBeep() {
+    const ctx = muted ? null : getAudio();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.frequency.value = 880;
+    g.gain.setValueAtTime(0.12, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+    osc.connect(g).connect(ctx.destination);
+    osc.start(t);
+    osc.stop(t + 0.09);
+  }
+
+  /* ---------- Clocks ---------- */
+
+  const clockEls = { red: $("redClock"), black: $("blackClock") };
+  let clocks = { red: 0, black: 0 };
+  let lastTick = 0;
+  let clockTimer = null;
+
+  function formatTime(ms) {
+    const s = Math.max(0, Math.ceil(ms / 1000));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  }
+
+  function renderClocks() {
+    for (const color of [RED, BLACK]) {
+      const el = clockEls[color];
+      el.textContent = formatTime(clocks[color]);
+      el.classList.toggle("active", started && !gameOver && state.turn === color);
+      el.classList.toggle("low", clocks[color] <= 30000);
+    }
+  }
+
+  function tick() {
+    const now = Date.now();
+    const dt = now - lastTick;
+    lastTick = now;
+    if (gameOver || !started || !state || !tutorialModal.hidden || !leaderboardModal.hidden) return; // paused while a help/leaderboard screen is open
+    const color = state.turn;
+    const before = Math.ceil(clocks[color] / 1000);
+    clocks[color] -= dt;
+    if (clocks[color] <= 0) {
+      clocks[color] = 0;
+      clearTimeout(aiTimer);
+      aiThinking = false;
+      endGame(other(color), `${name(color)} ran out of time.`);
+      return;
+    }
+    const after = Math.ceil(clocks[color] / 1000);
+    if (after < before && after <= 10 && !isComputerTurn()) playBeep();
+    renderClocks();
+  }
+
+  function resetClocks() {
+    const ms = settings.time * 1000;
+    clocks = { red: ms, black: ms };
+    clearInterval(clockTimer);
+    lastTick = Date.now();
+    clockTimer = setInterval(tick, 200);
+  }
+
+  /* ---------- Board & rules ---------- */
 
   function makeInitialBoard() {
     const board = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
-    for (let r = 0; r < 3; r++) {
+    for (let r = 0; r < SIZE; r++) {
       for (let c = 0; c < SIZE; c++) {
-        if ((r + c) % 2 === 1) board[r][c] = { color: BLACK, king: false };
-      }
-    }
-    for (let r = 5; r < SIZE; r++) {
-      for (let c = 0; c < SIZE; c++) {
-        if ((r + c) % 2 === 1) board[r][c] = { color: RED, king: false };
+        if ((r + c) % 2 !== 1) continue;
+        if (r < 3) board[r][c] = { color: BLACK, king: false };
+        else if (r > 4) board[r][c] = { color: RED, king: false };
       }
     }
     return board;
   }
 
-  function freshState() {
-    return { board: makeInitialBoard(), turn: RED, moves: 0, captures: 0 };
-  }
-
-  function cloneState(s) {
-    return {
-      board: s.board.map(row => row.map(piece => piece ? { ...piece } : null)),
-      turn: s.turn, moves: s.moves, captures: s.captures
-    };
-  }
-
-  function inBounds(r, c) {
-    return r >= 0 && r < SIZE && c >= 0 && c < SIZE;
-  }
-
-  function other(color) { return color === RED ? BLACK : RED; }
-
-  function directions(piece) {
-    if (piece.king) return [-1, 1];
-    return piece.color === RED ? [-1] : [1];
-  }
+  const freshState = () => ({ board: makeInitialBoard(), turn: RED, moves: 0, captures: 0 });
+  const cloneBoard = b => b.map(row => row.map(p => (p ? { ...p } : null)));
+  const cloneState = s => ({ board: cloneBoard(s.board), turn: s.turn, moves: s.moves, captures: s.captures });
+  const inBounds = (r, c) => r >= 0 && r < SIZE && c >= 0 && c < SIZE;
+  const other = color => (color === RED ? BLACK : RED);
+  const directions = p => (p.king ? [-1, 1] : p.color === RED ? [-1] : [1]);
 
   function movesForPiece(board, r, c) {
     const piece = board[r][c];
@@ -90,41 +461,63 @@
     return moves;
   }
 
+  // Mutates the board. Returns true if the piece was promoted to king.
+  function applyStep(board, move) {
+    const [r, c] = move.from, [nr, nc] = move.to;
+    const piece = board[r][c];
+    board[nr][nc] = piece;
+    board[r][c] = null;
+    if (move.capture) board[move.capture[0]][move.capture[1]] = null;
+    if (!piece.king && ((piece.color === RED && nr === 0) || (piece.color === BLACK && nr === SIZE - 1))) {
+      piece.king = true;
+      return true;
+    }
+    return false;
+  }
+
+  // Single-step moves for a color; captures are mandatory.
   function allLegalMoves(s, color = s.turn) {
     const normal = [], captures = [];
     for (let r = 0; r < SIZE; r++) {
       for (let c = 0; c < SIZE; c++) {
         const p = s.board[r][c];
         if (!p || p.color !== color) continue;
-        for (const move of movesForPiece(s.board, r, c)) {
-          (move.capture ? captures : normal).push(move);
-        }
+        for (const m of movesForPiece(s.board, r, c)) (m.capture ? captures : normal).push(m);
       }
     }
-    return captures.length ? captures : normal;
+    return [...captures, ...normal]; // captures are optional
   }
 
-  function movesForSelected(r, c) {
-    return legalMoves.filter(m => m.from[0] === r && m.from[1] === c);
+  function refreshLegal() {
+    legalMoves = forcedPiece
+      ? movesForPiece(state.board, forcedPiece[0], forcedPiece[1]).filter(m => m.capture)
+      : allLegalMoves(state);
   }
 
-  function saveHistory() {
-    history.push(cloneState(state));
-    if (history.length > 100) history.shift();
-  }
+  const movesForSelected = (r, c) => legalMoves.filter(m => m.from[0] === r && m.from[1] === c);
+
+  /* ---------- Game flow ---------- */
 
   function startNewGame() {
-    if (aiTimer) clearTimeout(aiTimer);
+    clearTimeout(aiTimer);
+    started = true;
+    $("startModal").hidden = true;
     state = freshState();
     selected = null;
-    legalMoves = [];
     history = [];
     gameOver = false;
     aiThinking = false;
     forcedPiece = null;
+    showHints = false;
     modal.hidden = true;
+    renderLadder();
+    $("undoButton").disabled = settings.mode === "challenge";
+    $("undoButton").title = settings.mode === "challenge" ? "Undo is off in ranked games" : "";
+    if (settings.mode === "challenge") showLevelBanner();
+    resetClocks();
+    refreshLegal();
     render();
-    updateStatus("Red's turn", "Select a red piece to see its legal moves.");
+    updateStatus("Red's turn", "Select a red piece to move.");
   }
 
   function updateStatus(title, hint) {
@@ -135,181 +528,231 @@
     liveMessage.textContent = `${title}. ${hint}`;
   }
 
-  function isComputerTurn() {
-    return modeSelect.value === "computer" && state.turn === BLACK && !gameOver;
+  const isComputerTurn = () => settings.mode !== "local" && state.turn === BLACK && !gameOver;
+
+  function renderCoordinates() {
+    const files = [...FILES], ranks = [8, 7, 6, 5, 4, 3, 2, 1];
+    if (flipped) { files.reverse(); ranks.reverse(); }
+    const fileHtml = files.map(f => `<span>${f}</span>`).join("");
+    const rankHtml = ranks.map(n => `<span>${n}</span>`).join("");
+    document.querySelectorAll(".coordinate-top, .coordinate-bottom").forEach(el => (el.innerHTML = fileHtml));
+    document.querySelectorAll(".coordinate-side").forEach(el => (el.innerHTML = rankHtml));
   }
 
   function render() {
     boardEl.innerHTML = "";
-    for (let viewR = 0; viewR < SIZE; viewR++) {
-      for (let viewC = 0; viewC < SIZE; viewC++) {
-        const r = flipped ? SIZE - 1 - viewR : viewR;
-        const c = flipped ? SIZE - 1 - viewC : viewC;
+    const movable = new Set();
+    if (showHints) legalMoves.forEach(m => movable.add(m.from.join(",")));
+    const targets = selected ? movesForSelected(selected[0], selected[1]) : [];
+
+    for (let vr = 0; vr < SIZE; vr++) {
+      for (let vc = 0; vc < SIZE; vc++) {
+        const r = flipped ? SIZE - 1 - vr : vr;
+        const c = flipped ? SIZE - 1 - vc : vc;
+        const dark = (r + c) % 2 === 1;
         const square = document.createElement("button");
         square.type = "button";
-        square.className = `square ${(r + c) % 2 === 1 ? "dark" : "light"}`;
+        square.className = `square ${dark ? "dark" : "light"}`;
         square.setAttribute("role", "gridcell");
-        square.setAttribute("aria-label", `Row ${r + 1}, column ${c + 1}`);
         square.dataset.r = r;
         square.dataset.c = c;
+        const label = `${FILES[c]}${SIZE - r}`;
 
         if (selected && selected[0] === r && selected[1] === c) square.classList.add("selected");
-        const targetMove = legalMoves.find(m => m.to[0] === r && m.to[1] === c);
-        if (targetMove) square.classList.add(targetMove.capture ? "capture-target" : "legal");
+        if (movable.has(`${r},${c}`)) square.classList.add("movable");
+        const target = targets.find(m => m.to[0] === r && m.to[1] === c);
+        if (target) square.classList.add(target.capture ? "capture-target" : "legal");
 
         const piece = state.board[r][c];
         if (piece) {
-          const pieceEl = document.createElement("span");
-          pieceEl.className = `piece ${piece.color}${piece.king ? " king" : ""}`;
-          square.appendChild(pieceEl);
-          square.setAttribute("aria-label", `${piece.color}${piece.king ? " king" : ""} piece, row ${r + 1}, column ${c + 1}`);
+          const el = document.createElement("span");
+          el.className = `piece ${piece.color}${piece.king ? " king" : ""}`;
+          if (lastLanded && lastLanded[0] === r && lastLanded[1] === c) el.classList.add("landed");
+          square.appendChild(el);
+          square.setAttribute("aria-label", `${piece.color}${piece.king ? " king" : ""} piece, ${label}`);
+        } else {
+          square.setAttribute("aria-label", `${label}${target ? ", legal destination" : ""}`);
         }
+        if (!dark) square.tabIndex = -1;
         square.addEventListener("click", () => handleSquareClick(r, c));
         boardEl.appendChild(square);
       }
     }
 
-    const redPieces = state.board.flat().filter(p => p && p.color === RED).length;
-    const blackPieces = state.board.flat().filter(p => p && p.color === BLACK).length;
-    redCountEl.textContent = redPieces;
-    blackCountEl.textContent = blackPieces;
+    const flat = state.board.flat();
+    redCountEl.textContent = flat.filter(p => p && p.color === RED).length;
+    blackCountEl.textContent = flat.filter(p => p && p.color === BLACK).length;
     moveCountEl.textContent = state.moves;
     captureCountEl.textContent = state.captures;
-    difficultyGroup.hidden = modeSelect.value !== "computer";
-    redRole.textContent = "Player 1";
-    blackRole.textContent = modeSelect.value === "computer" ? "Computer" : "Player 2";
+    redRole.textContent = settings.mode === "challenge" ? `${profile.name.trim() || "You"} · ${profile.rating}` : "Player 1";
+    blackRole.textContent = settings.mode === "local" ? "Player 2" : `${settings.mode === "challenge" ? "Level " + settings.level : "Computer"} · ${LEVELS[settings.level - 1].name}`;
+    renderCoordinates();
+    renderClocks();
+    lastLanded = null;
   }
 
   function handleSquareClick(r, c) {
-    if (gameOver || aiThinking || isComputerTurn() || (r + c) % 2 === 0) return;
-    const piece = state.board[r][c];
+    getAudio();
+    if (!started || gameOver || aiThinking || isComputerTurn() || (r + c) % 2 === 0) return;
 
     if (selected) {
-      const move = movesForSelected(...selected).find(m => m.to[0] === r && m.to[1] === c);
-      if (move) {
-        performMove(move);
-        return;
-      }
+      const move = movesForSelected(selected[0], selected[1]).find(m => m.to[0] === r && m.to[1] === c);
+      if (move) { performMove(move); return; }
     }
 
+    const who = name(state.turn);
     if (forcedPiece) {
-      updateStatus("Continue the capture", "You must continue jumping with the same piece.");
+      if (selected && selected[0] === r && selected[1] === c) { finishTurn(); return; }
+      updateStatus(`${who} can keep capturing`, "Jump again with the highlighted piece, or click it to stop.");
       return;
     }
 
+    const piece = state.board[r][c];
     if (piece && piece.color === state.turn) {
+      if (selected && selected[0] === r && selected[1] === c) {
+        selected = null;
+        render();
+        updateStatus(`${who}'s turn`, "Select one of your pieces.");
+        return;
+      }
       const available = movesForSelected(r, c);
       if (!available.length) {
-        updateStatus(`${state.turn === RED ? "Red" : "Black"}'s turn`, "That piece has no legal move. Choose another piece.");
+        updateStatus(`${who}'s turn`, "That piece has no legal move. Choose another piece.");
         return;
       }
       selected = [r, c];
       render();
-      updateStatus(`${state.turn === RED ? "Red" : "Black"} selected`, available.some(m => m.capture)
-        ? "Capture is mandatory. Choose a highlighted capture square."
+      updateStatus(`${who} selected`, available.some(m => m.capture)
+        ? "Gold rings are captures, and they're optional. Green dots are normal moves."
         : "Choose a highlighted square to move.");
     } else {
       selected = null;
       render();
-      updateStatus(`${state.turn === RED ? "Red" : "Black"}'s turn`, "Select one of your pieces.");
+      updateStatus(`${who}'s turn`, "Select one of your pieces.");
     }
   }
 
-  function performMove(move, fromAI = false) {
-    saveHistory();
-    const [r, c] = move.from;
+  function performMove(move) {
+    if (!forcedPiece) history.push(cloneState(state)), history.length > 100 && history.shift();
     const [nr, nc] = move.to;
-    const piece = state.board[r][c];
-    state.board[nr][nc] = piece;
-    state.board[r][c] = null;
-    if (move.capture) {
-      state.board[move.capture[0]][move.capture[1]] = null;
-      state.captures++;
-    }
-    if ((piece.color === RED && nr === 0) || (piece.color === BLACK && nr === 7)) {
-      piece.king = true;
-    }
-    state.moves++;
+    const promoted = applyStep(state.board, move);
+    lastLanded = [nr, nc];
+    if (move.capture) { state.captures++; playCaptureSound(); }
     selected = null;
-    legalMoves = [];
-    const movingColor = state.turn;
+    showHints = false;
 
-    // A multi-jump must continue with the same piece while another capture is available.
-    if (move.capture) {
-      const followUps = movesForPiece(state.board, nr, nc).filter(m => m.capture);
-      if (followUps.length) {
-        selected = [nr, nc];
+    // Keep jumping with the same piece, unless it was just crowned (a crowning jump ends the turn).
+    if (move.capture && !promoted) {
+      const more = movesForPiece(state.board, nr, nc).filter(m => m.capture);
+      if (more.length) {
         forcedPiece = [nr, nc];
-        legalMoves = followUps;
+        selected = [nr, nc];
+        legalMoves = more;
         render();
-        updateStatus(`${movingColor === RED ? "Red" : "Black"} must continue capturing`,
-          "Choose another highlighted jump with the same piece.");
-        if (fromAI) {
-          aiThinking = true;
-          aiTimer = setTimeout(() => {
-            aiThinking = false;
-            const followUp = followUps[Math.floor(Math.random() * followUps.length)];
-            performMove(followUp, true);
-          }, 250);
-        }
+        updateStatus(`${name(state.turn)} can keep capturing`,
+          isComputerTurn() ? "The computer is continuing its capture." : "Jump again, or click your piece to stop here.");
         return;
       }
     }
 
+    finishTurn();
+  }
+
+  function finishTurn() {
     forcedPiece = null;
+    selected = null;
+    state.moves++;
     state.turn = other(state.turn);
-    legalMoves = allLegalMoves(state);
+    refreshLegal();
     render();
     if (checkWinner()) return;
 
-    updateStatus(`${state.turn === RED ? "Red" : "Black"}'s turn`,
-      state.turn === RED ? "Select a red piece to move." : "Select a black piece to move.");
-
-    if (isComputerTurn() && !fromAI) scheduleComputerMove();
+    updateStatus(`${name(state.turn)}'s turn`, `Select a ${state.turn} piece to move.`);
+    if (isComputerTurn()) scheduleComputerMove();
   }
 
   function checkWinner() {
-    const red = state.board.flat().filter(p => p && p.color === RED).length;
-    const black = state.board.flat().filter(p => p && p.color === BLACK).length;
-    const available = allLegalMoves(state, state.turn);
-    if (red === 0 || black === 0 || available.length === 0) {
-      gameOver = true;
-      const winner = red === 0 ? BLACK : black === 0 ? RED : other(state.turn);
-      render();
-      updateStatus(`${winner === RED ? "Red" : "Black"} wins!`, "The match is complete.");
-      resultTitle.textContent = `${winner === RED ? "Red" : "Black"} wins!`;
-      resultText.textContent = available.length === 0 && red > 0 && black > 0
-        ? "The other player has no legal moves."
-        : "All opposing pieces have been captured.";
-      modal.hidden = false;
-      document.getElementById("playAgainButton").focus();
-      return true;
+    // legalMoves already holds the new current player's options.
+    if (legalMoves.length) return false;
+    const remaining = state.board.flat().filter(p => p && p.color === state.turn).length;
+    endGame(other(state.turn), remaining === 0
+      ? "All opposing pieces have been captured."
+      : "The other player has no legal moves.");
+    return true;
+  }
+
+  function endGame(winner, text) {
+    if (gameOver) return;
+    gameOver = true;
+    render();
+    updateStatus(`${name(winner)} wins!`, "The match is complete.");
+    resultTitle.textContent = `${name(winner)} wins!`;
+    resultText.textContent = text;
+    resultAction = "again";
+    $("playAgainButton").textContent = "Play again";
+    $("menuButton").hidden = settings.mode !== "challenge";
+    $("resultBoard").hidden = settings.mode !== "challenge";
+    $("ratingChange").hidden = true;
+    if (settings.mode === "challenge") {
+      const lvl = LEVELS[settings.level - 1];
+      showRatingChange(applyRating(winner === RED, settings.level), winner === RED);
+      if (winner === RED) { cleared = Math.max(cleared, settings.level); saveProgress(); renderLadder(); }
+      if (winner === RED && settings.level < LEVELS.length) {
+        resultTitle.textContent = `Level ${settings.level} cleared!`;
+        resultText.textContent = `You beat ${lvl.name} and unlocked Level ${settings.level + 1}: ${LEVELS[settings.level].name}, a stronger opponent.`;
+        resultAction = "next";
+        $("playAgainButton").textContent = "Next level →";
+      } else if (winner === RED) {
+        resultTitle.textContent = "Champion!";
+        resultText.textContent = "You beat all five levels. Nobody can stop you now.";
+      } else {
+        resultTitle.textContent = "Level failed";
+        resultText.textContent = `${lvl.name} won this round. Ready for a rematch?`;
+        resultAction = "retry";
+        $("playAgainButton").textContent = "Retry level";
+      }
     }
-    return false;
+    modal.hidden = false;
+    $("playAgainButton").focus();
   }
 
-  function scheduleComputerMove() {
-    aiThinking = true;
-    updateStatus("Computer is thinking…", "The computer is choosing a legal move.");
-    aiTimer = setTimeout(() => {
-      const depth = Number(difficultySelect.value);
-      const move = chooseComputerMove(state, depth);
-      aiThinking = false;
-      if (move && !gameOver && state.turn === BLACK) performMove(move, true);
-    }, 300);
+  /* ---------- Computer player ---------- */
+
+  // Every full capture chain starting from one piece.
+  function captureSequences(board, r, c) {
+    const results = [];
+    (function walk(b, pr, pc, path) {
+      const jumps = movesForPiece(b, pr, pc).filter(m => m.capture);
+      if (!jumps.length) { if (path.length) results.push({ steps: path }); return; }
+      for (const j of jumps) {
+        const nb = cloneBoard(b);
+        const promoted = applyStep(nb, j);
+        const next = [...path, j];
+        if (promoted) results.push({ steps: next });
+        else walk(nb, j.to[0], j.to[1], next);
+      }
+    })(board, r, c, []);
+    return results;
   }
 
-  function applyMoveToState(s, move) {
+  // Complete turns (a whole jump chain counts as one turn).
+  function allTurnMoves(s, color) {
+    const caps = [], normal = [];
+    for (let r = 0; r < SIZE; r++) {
+      for (let c = 0; c < SIZE; c++) {
+        const p = s.board[r][c];
+        if (!p || p.color !== color) continue;
+        caps.push(...captureSequences(s.board, r, c));
+        for (const m of movesForPiece(s.board, r, c)) if (!m.capture) normal.push({ steps: [m] });
+      }
+    }
+    return [...caps, ...normal]; // captures are optional
+  }
+
+  function applyTurn(s, seq) {
     const next = cloneState(s);
-    const [r, c] = move.from, [nr, nc] = move.to;
-    const piece = next.board[r][c];
-    next.board[nr][nc] = piece;
-    next.board[r][c] = null;
-    if (move.capture) next.board[move.capture[0]][move.capture[1]] = null;
-    if ((piece.color === RED && nr === 0) || (piece.color === BLACK && nr === 7)) piece.king = true;
+    for (const step of seq.steps) applyStep(next.board, step);
     next.turn = other(s.turn);
-    next.moves++;
-    if (move.capture) next.captures++;
     return next;
   }
 
@@ -319,108 +762,212 @@
       for (let c = 0; c < SIZE; c++) {
         const p = s.board[r][c];
         if (!p) continue;
-        const value = p.king ? 5 : 3;
-        const advancement = p.color === BLACK ? r * 0.08 : (7 - r) * 0.08;
-        score += (p.color === BLACK ? 1 : -1) * (value + advancement);
+        const advancement = p.king ? 0 : (p.color === BLACK ? r : SIZE - 1 - r) * 0.08;
+        const back = !p.king && (p.color === BLACK ? r === 0 : r === SIZE - 1) ? 0.25 : 0;
+        const center = r >= 2 && r <= 5 && c >= 2 && c <= 5 ? 0.1 : 0;
+        score += (p.color === BLACK ? 1 : -1) * ((p.king ? 5 : 3) + advancement + back + center);
       }
     }
     return score;
   }
 
-  function minimax(s, depth, alpha, beta, maximizing) {
-    const moves = allLegalMoves(s, s.turn);
-    const red = s.board.flat().filter(p => p && p.color === RED).length;
-    const black = s.board.flat().filter(p => p && p.color === BLACK).length;
-    if (depth === 0 || red === 0 || black === 0 || moves.length === 0) {
-      if (black === 0 || (moves.length === 0 && s.turn === BLACK)) return -1000 - depth;
-      if (red === 0 || (moves.length === 0 && s.turn === RED)) return 1000 + depth;
-      return evaluate(s);
-    }
-    if (maximizing) {
-      let best = -Infinity;
-      for (const move of moves) {
-        const value = minimax(applyMoveToState(s, move), depth - 1, alpha, beta, false);
-        best = Math.max(best, value);
-        alpha = Math.max(alpha, best);
-        if (beta <= alpha) break;
-      }
-      return best;
-    } else {
-      let best = Infinity;
-      for (const move of moves) {
-        const value = minimax(applyMoveToState(s, move), depth - 1, alpha, beta, true);
-        best = Math.min(best, value);
-        beta = Math.min(beta, best);
-        if (beta <= alpha) break;
-      }
-      return best;
-    }
-  }
-
-  function chooseComputerMove(s, difficulty) {
-    const moves = allLegalMoves(s, BLACK);
-    if (!moves.length) return null;
-    if (difficulty === 1) return moves[Math.floor(Math.random() * moves.length)];
-
-    const depth = difficulty === 2 ? 3 : 5;
-    let bestScore = -Infinity;
-    let bestMoves = [];
+  function minimax(s, depth, alpha, beta) {
+    const moves = allTurnMoves(s, s.turn);
+    if (!moves.length) return s.turn === BLACK ? -1000 - depth : 1000 + depth;
+    if (depth === 0) return evaluate(s);
+    const maximizing = s.turn === BLACK;
+    let best = maximizing ? -Infinity : Infinity;
     for (const move of moves) {
-      const score = minimax(applyMoveToState(s, move), depth - 1, -Infinity, Infinity, false);
-      if (score > bestScore) {
-        bestScore = score;
-        bestMoves = [move];
-      } else if (score === bestScore) bestMoves.push(move);
+      const v = minimax(applyTurn(s, move), depth - 1, alpha, beta);
+      if (maximizing) { best = Math.max(best, v); alpha = Math.max(alpha, best); }
+      else { best = Math.min(best, v); beta = Math.min(beta, best); }
+      if (beta <= alpha) break;
     }
-    return bestMoves[Math.floor(Math.random() * bestMoves.length)];
+    return best;
   }
+
+  function chooseComputerMove(s, level) {
+    const moves = allTurnMoves(s, BLACK);
+    if (!moves.length) return null;
+    const { depth, blunder } = LEVELS[level - 1];
+    if (!depth || Math.random() < blunder) return moves[Math.floor(Math.random() * moves.length)];
+    let bestScore = -Infinity, best = [];
+    for (const move of moves) {
+      const score = minimax(applyTurn(s, move), depth - 1, -Infinity, Infinity);
+      if (score > bestScore) { bestScore = score; best = [move]; }
+      else if (score === bestScore) best.push(move);
+    }
+    return best[Math.floor(Math.random() * best.length)];
+  }
+
+  function scheduleComputerMove() {
+    aiThinking = true;
+    updateStatus("Computer is thinking…", "The computer is choosing a move.");
+    aiTimer = setTimeout(() => {
+      const seq = chooseComputerMove(state, settings.level);
+      if (!seq || gameOver) { aiThinking = false; return; }
+      playAISteps(seq.steps, 0);
+    }, 350);
+  }
+
+  function playAISteps(steps, i) {
+    performMove(steps[i]);
+    if (i + 1 < steps.length && !gameOver) {
+      aiTimer = setTimeout(() => playAISteps(steps, i + 1), 400);
+    } else {
+      aiThinking = false;
+    }
+  }
+
+  /* ---------- Controls ---------- */
 
   function undoMove() {
-    if (!history.length || aiThinking) return;
-    if (aiTimer) clearTimeout(aiTimer);
-    aiThinking = false;
-    // In computer mode, undo both the computer's move and the player's preceding move when possible.
+    if (settings.mode === "challenge" || !history.length || aiThinking || clocks.red <= 0 || clocks.black <= 0) return; // no undo in ranked games
     state = history.pop();
-    if (modeSelect.value === "computer" && state.turn === BLACK && history.length) {
-      state = history.pop();
-    }
+    // Against the computer, also take back the player's own move so it's their turn again.
+    if (settings.mode !== "local" && state.turn === BLACK && history.length) state = history.pop();
     selected = null;
     forcedPiece = null;
-    legalMoves = allLegalMoves(state);
+    showHints = false;
     gameOver = false;
     modal.hidden = true;
+    refreshLegal();
     render();
-    updateStatus(`${state.turn === RED ? "Red" : "Black"}'s turn`, "Last move undone.");
+    updateStatus(`${name(state.turn)}'s turn`, "Last move undone.");
   }
 
-  function showLegalMoves() {
+  function toggleHints() {
     if (gameOver || aiThinking || isComputerTurn()) return;
-    selected = null;
-    legalMoves = allLegalMoves(state);
+    showHints = !showHints;
     render();
-    updateStatus("Legal moves highlighted", legalMoves.some(m => m.capture)
-      ? "Captures are mandatory. Yellow rings mark capture destinations."
-      : "Green dots mark legal destinations.");
+    updateStatus(showHints ? "Movable pieces highlighted" : `${name(state.turn)}'s turn`,
+      showHints
+        ? "Select a highlighted piece to see where it can go."
+        : "Select one of your pieces.");
   }
 
-  document.getElementById("newGame").addEventListener("click", startNewGame);
-  document.getElementById("newGameTop").addEventListener("click", startNewGame);
-  document.getElementById("playAgainButton").addEventListener("click", startNewGame);
-  document.getElementById("undoButton").addEventListener("click", undoMove);
-  document.getElementById("hintButton").addEventListener("click", showLegalMoves);
-  document.getElementById("flipButton").addEventListener("click", () => {
-    flipped = !flipped;
-    render();
-  });
-  modeSelect.addEventListener("change", startNewGame);
-  difficultySelect.addEventListener("change", () => {
-    if (modeSelect.value === "computer" && state.turn === BLACK && !gameOver) {
-      scheduleComputerMove();
+  /* ---------- Start screen ---------- */
+
+  const startModal = $("startModal");
+  const welcomeModal = $("welcomeModal");
+  const setupTime = $("setupTime");
+  const modeInputs = document.querySelectorAll('input[name="startMode"]');
+  const chosenMode = () => document.querySelector('input[name="startMode"]:checked').value;
+
+  // Level picker: levels you haven't unlocked yet are locked.
+  function renderLevelPicker(note) {
+    $("levelGrid").innerHTML = LEVELS.map((L, i) => {
+      const n = i + 1, locked = n > cleared + 1, done = n <= cleared;
+      return `<button type="button" role="radio" aria-checked="${n === pickedLevel}" data-level="${n}" class="level-btn${n === pickedLevel ? " selected" : ""}${locked ? " locked" : ""}" aria-disabled="${locked}" aria-label="Level ${n}, ${L.name}${locked ? ", locked" : done ? ", cleared" : ""}"><span class="lv-icon">${locked ? "🔒" : L.icon}</span><b>L${n}</b>${done ? "<i>✓</i>" : ""}</button>`;
+    }).join("");
+    const L = LEVELS[pickedLevel - 1];
+    $("levelCaption").textContent = note || `${L.icon} Level ${pickedLevel} · ${L.name} (rated ${BOT_RATING[pickedLevel - 1]})` +
+      (pickedLevel <= cleared ? " — cleared, play it again" : pickedLevel < LEVELS.length ? ` — beat it to unlock Level ${pickedLevel + 1}` : " — beat it to become Champion");
+    $("resetProgress").hidden = cleared === 0;
+  }
+
+  function syncSetup() {
+    $("levelPicker").hidden = chosenMode() !== "challenge";
+    renderLevelPicker();
+  }
+
+  $("levelGrid").addEventListener("click", e => {
+    const btn = e.target.closest(".level-btn");
+    if (!btn) return;
+    const n = Number(btn.dataset.level);
+    if (n > cleared + 1) {
+      renderLevelPicker(`🔒 Beat Level ${n - 1} to unlock this one.`);
+      const locked = $("levelGrid").querySelector(`[data-level="${n}"]`);
+      locked.classList.add("shake");
+      locked.addEventListener("animationend", () => locked.classList.remove("shake"));
+      return;
     }
+    pickedLevel = n;
+    renderLevelPicker();
+  });
+  $("resetProgress").addEventListener("click", () => {
+    if (!window.confirm("Reset your Level Challenge progress?")) return;
+    cleared = 0;
+    saveProgress();
+    pickedLevel = 1;
+    renderLevelPicker();
   });
 
-  state = freshState();
-  legalMoves = allLegalMoves(state);
-  render();
-  updateStatus("Red's turn", "Select a red piece to see its legal moves.");
+  // Shows a fresh board behind the start screen. Nothing runs until the player presses Start.
+  function openSetup(welcome = false) {
+    clearTimeout(aiTimer);
+    clearInterval(clockTimer);
+    started = false;
+    aiThinking = false;
+    gameOver = false;
+    forcedPiece = null;
+    selected = null;
+    showHints = false;
+    history = [];
+    modal.hidden = true;
+    state = freshState();
+    const ms = settings.time * 1000;
+    clocks = { red: ms, black: ms };
+    refreshLegal();
+    render();
+    updateStatus("Choose a game mode", "Pick how you want to play to begin.");
+    document.querySelector(`input[name="startMode"][value="${settings.mode}"]`).checked = true;
+    pickedLevel = Math.min(cleared + 1, LEVELS.length);
+    setupTime.value = String(settings.time);
+    syncSetup();
+    renderLadder();
+    welcomeModal.hidden = !welcome;
+    startModal.hidden = welcome;
+    (welcome ? $("playButton") : document.querySelector('input[name="startMode"]:checked')).focus();
+  }
+
+  modeInputs.forEach(input => input.addEventListener("change", syncSetup));
+  $("startGameButton").addEventListener("click", () => {
+    settings.mode = chosenMode();
+    settings.level = settings.mode === "challenge" ? pickedLevel : 1; // Practice always uses the easiest computer
+    settings.time = Number(setupTime.value);
+    getAudio();
+    closeModal(startModal, startNewGame);
+  });
+  $("playButton").addEventListener("click", () => {
+    getAudio();
+    closeModal(welcomeModal, () => {
+      startModal.hidden = false;
+      document.querySelector('input[name="startMode"]:checked').focus();
+    });
+  });
+
+  $("newGameTop").addEventListener("click", () => {
+    // Leaving a ranked match that has started counts as a loss.
+    if (started && !gameOver && settings.mode === "challenge" && state.moves > 0) {
+      if (!window.confirm("Leave this ranked match? It will count as a loss.")) return;
+      applyRating(false, settings.level);
+    }
+    openSetup();
+  });
+  $("playAgainButton").addEventListener("click", () => {
+    if (resultAction === "again") { openSetup(); return; }
+    if (resultAction === "next") settings.level++;
+    closeModal(modal, startNewGame);
+  });
+  $("menuButton").addEventListener("click", () => closeModal(modal, () => openSetup()));
+  $("tutorialTop").addEventListener("click", openTutorial);
+  $("ratingPill").addEventListener("click", openLeaderboard);
+  $("leaderboardButton").addEventListener("click", openLeaderboard);
+  $("resultBoard").addEventListener("click", openLeaderboard);
+  $("tutorialButton").addEventListener("click", openTutorial);
+  $("tutPrev").addEventListener("click", () => tutorialStep(-1));
+  $("tutNext").addEventListener("click", () => tutorialStep(1));
+  $("tutSkip").addEventListener("click", closeTutorial);
+  $("undoButton").addEventListener("click", undoMove);
+  $("hintButton").addEventListener("click", toggleHints);
+  $("flipButton").addEventListener("click", () => { flipped = !flipped; render(); });
+  $("soundButton").addEventListener("click", e => {
+    muted = !muted;
+    e.currentTarget.textContent = muted ? "🔇 Sound off" : "🔊 Sound on";
+    e.currentTarget.setAttribute("aria-pressed", String(muted));
+    if (!muted) getAudio();
+  });
+
+  openSetup(true);
 })();
