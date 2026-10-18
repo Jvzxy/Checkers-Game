@@ -136,8 +136,8 @@ select:focus-visible, button:focus-visible { outline: 2px solid #70b2ff; outline
 .mode-text { display: grid; gap: 3px; }
 .mode-text strong { font-size: 15px; }
 .mode-text small { color: var(--muted); font-size: 12px; font-weight: 400; }
-.setup-row { display: flex; flex-wrap: wrap; gap: 12px; }
-.setup-row .control-group { flex: 1 1 150px; }
+.setup-note { margin: 0 0 2px !important; text-align: center; font-size: 13px !important; }
+.setup-note strong { color: var(--text); }
 
 
 /* Pixel lettering */
@@ -169,6 +169,8 @@ select:focus-visible, button:focus-visible { outline: 2px solid #70b2ff; outline
 .mode-card:has(input:checked) .mode-icon { animation: icon-bounce .45s ease-out; }
 .square.selected .piece { transform: translateY(-7%) scale(1.08); filter: drop-shadow(0 6px 6px #0008); }
 .piece.landed { animation: land .4s ease-out; }
+.board-wrap.turning { animation: board-turn .7s cubic-bezier(.3, .8, .25, 1); } /* two players: the board spins to face the next player */
+@keyframes board-turn { from { transform: rotate(180deg); } to { transform: none; } }
 @keyframes px-drop { from { opacity: 0; transform: translateY(-8px) scale(.5); } to { opacity: 1; transform: none; } }
 @keyframes fade-in { from { opacity: 0; } }
 @keyframes fade-out { to { opacity: 0; } }
@@ -226,7 +228,7 @@ select:focus-visible, button:focus-visible { outline: 2px solid #70b2ff; outline
 
 .ladder-panel { padding: 17px; }
 .ladder-panel h3 { margin: 0 0 10px; font-size: 15px; }
-.ladder { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.ladder { position: relative; display: grid; gap: 6px; margin: 0; padding: 0 4px 0 0; list-style: none; max-height: 272px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #304b70 transparent; }
 .ladder li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: #0c182a; color: var(--muted); font-size: 13px; }
 .ladder li em { margin-left: auto; font-style: normal; font-size: 12px; }
 .ladder li.current { color: var(--text); border-color: #ffd166; background: #2a2518; animation: ladder-glow 1.6s ease-in-out infinite; }
@@ -268,8 +270,8 @@ select:focus-visible, button:focus-visible { outline: 2px solid #70b2ff; outline
 .picker-label { display: flex; align-items: center; justify-content: space-between; margin: 0 !important; color: var(--muted); font-size: 12px !important; font-weight: 700; }
 .picker-label .tut-skip { margin: 0; padding: 0; }
 .level-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
-.level-btn { position: relative; display: grid; justify-items: center; gap: 2px; padding: 10px 0 8px; border: 1px solid var(--border); border-radius: 12px; background: #0c182a; color: var(--text); font-size: 11px; cursor: pointer; }
-.level-btn .lv-icon { font-size: 24px; }
+.level-btn { position: relative; display: grid; justify-items: center; gap: 1px; padding: 7px 0 6px; border: 1px solid var(--border); border-radius: 12px; background: #0c182a; color: var(--text); font-size: 11px; cursor: pointer; }
+.level-btn .lv-icon { font-size: 21px; }
 .level-btn:hover:not(.locked) { border-color: #3d5c85; }
 .level-btn.selected { border-color: #ffd166; background: #2a2518; animation: icon-bounce .45s ease-out; }
 .level-btn.locked { opacity: .5; cursor: not-allowed; }
@@ -298,7 +300,7 @@ select:focus-visible, button:focus-visible { outline: 2px solid #70b2ff; outline
 .lb-bar { height: 8px; margin: 2px 8px 0; overflow: hidden; border-radius: 99px; background: #1a2b45; }
 .lb-bar i { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #2482ff, #66e5ad); transition: width .6s cubic-bezier(.2, .9, .3, 1); }
 .lb-rating { font-size: 30px; font-variant-numeric: tabular-nums; }
-.lb-list { display: grid; gap: 6px; margin: 0 0 14px; padding: 0; list-style: none; }
+.lb-list { position: relative; display: grid; gap: 6px; margin: 0 0 14px; padding: 2px 4px 2px 2px; list-style: none; max-height: 300px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #304b70 transparent; }
 .lb-list li { display: grid; grid-template-columns: 26px 30px 1fr auto; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 10px; background: #0c182a; font-size: 14px; }
 .lb-list li.me { border-color: #ffd166; background: #2a2518; animation: ladder-glow 2s ease-in-out infinite; }
 .lb-rank { color: var(--muted); font-weight: 800; }

@@ -5,6 +5,7 @@
   const RED = "red";
   const BLACK = "black";
   const FILES = "ABCDEFGH";
+  const MAX_LEVEL = 15; // number of computer levels (must match LEVELS.length below)
   const $ = id => document.getElementById(id);
   const boardEl = $("board");
   const statusTitle = $("statusTitle");
@@ -22,7 +23,8 @@
   const liveMessage = $("liveMessage");
 
   // Chosen on the start screen; can only change by starting a new game.
-  const settings = { mode: "local", level: 1, time: 300 };
+  // Every match is 10 minutes per player (time is in seconds).
+  const settings = { mode: "local", level: 1, time: 600 };
   let cleared = loadProgress(); // how many challenge levels the player has beaten (saved)
   let pickedLevel = 1;          // level highlighted on the start screen
   let resultAction = "again"; // what the result button does: again | next | retry
@@ -32,7 +34,9 @@
   let selected = null;      // [r, c] of the selected piece
   let legalMoves = [];      // single-step moves available to the current player
   let history = [];         // snapshots taken at the start of each turn
-  let flipped = false;
+  let flipped = false;      // manual board flip (single-player modes)
+  let perspective = true;   // two players: the board turns to face whoever is moving
+  let lastView = null;      // last board orientation drawn (to animate the turn)
   let gameOver = false;
   let aiThinking = false;
   let aiTimer = null;
@@ -126,16 +130,30 @@
 
   /* ---------- AI levels & challenge ladder ---------- */
 
+  // depth  = how many turns ahead it looks (a cap from Level 6 up)
+  // blunder = chance it plays a random move instead
+  // ms     = thinking time per move (Level 6+ keeps searching deeper until this runs out)
+  // pro    = richer evaluation plus a look-ahead through capture exchanges (Level 6+)
   const LEVELS = [
-    { name: "Rookie",     icon: "🌱", depth: 0, blunder: 1 },    // random moves
-    { name: "Apprentice", icon: "⚔️", depth: 2, blunder: 0.3 },  // thinks 2 turns ahead, often slips
-    { name: "Challenger", icon: "🛡️", depth: 3, blunder: 0 },
-    { name: "Expert",     icon: "🔥", depth: 5, blunder: 0 },
-    { name: "Master",     icon: "👑", depth: 6, blunder: 0 },
+    { name: "Rookie",      icon: "🌱", depth: 0,  blunder: 1 },    // random moves
+    { name: "Apprentice",  icon: "⚔️", depth: 2,  blunder: 0.3 },  // thinks 2 turns ahead, often slips
+    { name: "Challenger",  icon: "🛡️", depth: 3,  blunder: 0 },
+    { name: "Expert",      icon: "🔥", depth: 5,  blunder: 0 },
+    { name: "Master",      icon: "👑", depth: 6,  blunder: 0 },
+    { name: "Veteran",     icon: "🎖️", depth: 7,  blunder: 0.02,  ms: 600,  pro: true }, // rare slips that fade out by Level 10
+    { name: "Tactician",   icon: "🧠", depth: 8,  blunder: 0.015, ms: 800,  pro: true },
+    { name: "Strategist",  icon: "♟️", depth: 9,  blunder: 0.01,  ms: 1000, pro: true },
+    { name: "Warlord",     icon: "⚡", depth: 10, blunder: 0.005, ms: 1200, pro: true },
+    { name: "Prodigy",     icon: "🦅", depth: 11, blunder: 0,     ms: 1400, pro: true },
+    { name: "Virtuoso",    icon: "🐉", depth: 12, blunder: 0,     ms: 1600, pro: true },
+    { name: "Maestro",     icon: "🌋", depth: 13, blunder: 0, ms: 1900, pro: true },
+    { name: "Grandmaster", icon: "🚀", depth: 14, blunder: 0, ms: 2200, pro: true },
+    { name: "Titan",       icon: "🗿", depth: 16, blunder: 0, ms: 2500, pro: true },
+    { name: "Immortal",    icon: "💀", depth: 18, blunder: 0, ms: 3000, pro: true },
   ];
 
   function loadProgress() {
-    try { return Math.min(5, Math.max(0, Number(localStorage.getItem("checkers.cleared")) || 0)); }
+    try { return Math.min(MAX_LEVEL, Math.max(0, Number(localStorage.getItem("checkers.cleared")) || 0)); }
     catch { return 0; }
   }
   function saveProgress() {
@@ -150,6 +168,9 @@
       const mark = { current: "▶", locked: "🔒", done: "✓", open: "" }[cls];
       return `<li class="${cls}"><span>${L.icon}</span>Level ${n} · ${L.name}<em>${mark}</em></li>`;
     }).join("");
+    // The list scrolls now that there are 15 levels, so keep the current one in view.
+    const list = $("ladderSteps"), cur = list.querySelector(".current");
+    if (cur) list.scrollTop = cur.offsetTop - (list.clientHeight - cur.offsetHeight) / 2;
   }
 
   function showLevelBanner() {
@@ -184,8 +205,8 @@
       visual: mini(6, mk("move", 0, 3) + mp("red", 1, 2, "a-move crowns", "--dx:1;--dy:-1")) },
     { title: "How to win", text: "Capture every piece, leave them with no legal move, or watch their clock hit zero.",
       visual: `<div class="tut-chips"><span class="chip" style="--d:0">💥<b>Capture all</b></span><span class="chip" style="--d:1">🚧<b>Block them</b></span><span class="chip" style="--d:2">⏱️<b>Beat the clock</b></span></div>` },
-    { title: "Climb the ladder", text: "In Level Challenge, only Level 1 is open. Beat a level to unlock the next, stronger computer.",
-      visual: `<div class="tut-ladder">${LEVELS.map((L, i) => `<span style="--i:${i}">${L.icon}<b>L${i + 1}</b></span>`).join("")}</div>` },
+    { title: "Climb the ladder", text: `In Level Challenge, only Level 1 is open. Beat a level to unlock the next, stronger computer. There are ${LEVELS.length} levels in all!`,
+      visual: `<div class="tut-ladder">${[0, 3, 7, 11, LEVELS.length - 1].map((n, k) => `<span style="--i:${k}">${LEVELS[n].icon}<b>L${n + 1}</b></span>`).join("")}</div>` },
   ];
 
   const tutorialModal = $("tutorialModal");
@@ -230,8 +251,9 @@
     { name: "Bronze", icon: "🥉", min: 0 }, { name: "Silver", icon: "🥈", min: 800 }, { name: "Gold", icon: "🥇", min: 1100 },
     { name: "Platinum", icon: "💠", min: 1400 }, { name: "Diamond", icon: "💎", min: 1700 }, { name: "Legend", icon: "🔥", min: 2000 },
   ];
-  const BOT_RATING = [500, 850, 1200, 1550, 1900];       // one per computer level
-  const DEFAULT_PROFILE = { name: "You", rating: 600, peak: 600, wins: 0, losses: 0, streak: 0, best: 0 };
+  const BOT_RATING = LEVELS.map((_, i) => 400 + i * 150); // 400 up to 2500, one per computer level
+  const PROFILE_VERSION = 2; // v2: ratings start at 0 (older saves started at 600)
+  const DEFAULT_PROFILE = { v: PROFILE_VERSION, name: "You", rating: 0, peak: 0, wins: 0, losses: 0, streak: 0, best: 0 };
   const tierOf = r => [...TIERS].reverse().find(t => r >= t.min);
   const esc = str => str.replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
   const leaderboardModal = $("leaderboardModal");
@@ -240,7 +262,11 @@
   function loadProfile() {
     try {
       const p = JSON.parse(localStorage.getItem("checkers.profile"));
-      if (p && typeof p.rating === "number") return { ...DEFAULT_PROFILE, ...p };
+      if (p && typeof p.rating === "number") {
+        // An older save started at 600 points: start it again from 0 once, but keep the player's name.
+        if (p.v !== PROFILE_VERSION) return { ...DEFAULT_PROFILE, name: typeof p.name === "string" ? p.name : DEFAULT_PROFILE.name };
+        return { ...DEFAULT_PROFILE, ...p };
+      }
     } catch { /* ignore */ }
     return { ...DEFAULT_PROFILE };
   }
@@ -260,7 +286,7 @@
     const expected = 1 / (1 + 10 ** ((BOT_RATING[level - 1] - before) / 400));
     let delta = Math.round(32 * ((win ? 1 : 0) - expected));
     delta = win ? Math.max(1, delta) : Math.min(-1, delta);
-    profile.rating = Math.max(100, before + delta);
+    profile.rating = Math.max(0, before + delta); // can't go below 0
     profile.peak = Math.max(profile.peak, profile.rating);
     if (win) { profile.wins++; profile.streak++; profile.best = Math.max(profile.best, profile.streak); }
     else { profile.losses++; profile.streak = 0; }
@@ -272,7 +298,7 @@
   function showRatingChange(r, win) {
     const was = tierOf(r.before), now = tierOf(r.after);
     $("ratingChange").innerHTML =
-      `<strong class="delta ${r.delta >= 0 ? "up" : "down"}">${r.delta >= 0 ? "+" : ""}${r.delta}</strong>` +
+      `<strong class="delta ${r.delta > 0 ? "up" : r.delta < 0 ? "down" : ""}">${r.delta > 0 ? "+" : ""}${r.delta}</strong>` +
       `<span>Rating ${r.before} → ${r.after} · ${now.icon} ${now.name}</span>` +
       (now.min > was.min ? `<em>🎉 Promoted to ${now.icon} ${now.name}!</em>` : "") +
       (now.min < was.min ? `<em class="demo">Dropped to ${now.icon} ${now.name}</em>` : "") +
@@ -302,6 +328,9 @@
     renderLeaderboard();
     $("lbName").value = profile.name;
     leaderboardModal.hidden = false;
+    // 16 rows now, so scroll the list to put the player's own row in view.
+    const list = $("lbList"), me = list.querySelector(".me");
+    if (me) list.scrollTop = me.offsetTop - (list.clientHeight - me.offsetHeight) / 2;
     $("lbClose").focus();
   }
   const closeLeaderboard = () => closeModal(leaderboardModal, () => {});
@@ -462,7 +491,8 @@
   }
 
   const freshState = () => ({ board: makeInitialBoard(), turn: RED, moves: 0, captures: 0 });
-  const cloneBoard = b => b.map(row => row.map(p => (p ? { ...p } : null)));
+  // Pieces are never changed in place (a promotion swaps in a new king object), so copies can share them.
+  const cloneBoard = b => b.map(row => row.slice());
   const cloneState = s => ({ board: cloneBoard(s.board), turn: s.turn, moves: s.moves, captures: s.captures });
   const inBounds = (r, c) => r >= 0 && r < SIZE && c >= 0 && c < SIZE;
   const other = color => (color === RED ? BLACK : RED);
@@ -489,7 +519,7 @@
     return moves;
   }
 
-  // Mutates the board. Returns true if the piece was promoted to king.
+  // Mutates the board (but never a piece object). Returns true if the piece was promoted to king.
   function applyStep(board, move) {
     const [r, c] = move.from, [nr, nc] = move.to;
     const piece = board[r][c];
@@ -497,7 +527,7 @@
     board[r][c] = null;
     if (move.capture) board[move.capture[0]][move.capture[1]] = null;
     if (!piece.king && ((piece.color === RED && nr === 0) || (piece.color === BLACK && nr === SIZE - 1))) {
-      piece.king = true;
+      board[nr][nc] = { color: piece.color, king: true };
       return true;
     }
     return false;
@@ -541,6 +571,7 @@
     renderLadder();
     $("undoButton").disabled = settings.mode === "challenge";
     $("undoButton").title = settings.mode === "challenge" ? "Undo is off in ranked games" : "";
+    updateFlipButton();
     if (settings.mode === "challenge") showLevelBanner();
     resetClocks();
     refreshLegal();
@@ -558,9 +589,26 @@
 
   const isComputerTurn = () => settings.mode !== "local" && state.turn === BLACK && !gameOver;
 
-  function renderCoordinates() {
+  // Two players share one device, so the board turns to face whoever is moving.
+  // Otherwise it only turns when the Flip board button is pressed.
+  const viewFlipped = () => (settings.mode === "local" && perspective ? state.turn === BLACK : flipped);
+
+  function updateFlipButton() {
+    const b = $("flipButton");
+    if (settings.mode === "local") {
+      b.textContent = `🔄 Turn view: ${perspective ? "on" : "off"}`;
+      b.title = "When on, the board turns to face the player whose move it is";
+      b.setAttribute("aria-pressed", String(perspective));
+    } else {
+      b.textContent = "⇅ Flip board";
+      b.title = "";
+      b.removeAttribute("aria-pressed");
+    }
+  }
+
+  function renderCoordinates(flip) {
     const files = [...FILES], ranks = [8, 7, 6, 5, 4, 3, 2, 1];
-    if (flipped) { files.reverse(); ranks.reverse(); }
+    if (flip) { files.reverse(); ranks.reverse(); }
     const fileHtml = files.map(f => `<span>${f}</span>`).join("");
     const rankHtml = ranks.map(n => `<span>${n}</span>`).join("");
     document.querySelectorAll(".coordinate-top, .coordinate-bottom").forEach(el => (el.innerHTML = fileHtml));
@@ -572,11 +620,12 @@
     const movable = new Set();
     if (showHints) legalMoves.forEach(m => movable.add(m.from.join(",")));
     const targets = selected ? movesForSelected(selected[0], selected[1]) : [];
+    const view = viewFlipped();
 
     for (let vr = 0; vr < SIZE; vr++) {
       for (let vc = 0; vc < SIZE; vc++) {
-        const r = flipped ? SIZE - 1 - vr : vr;
-        const c = flipped ? SIZE - 1 - vc : vc;
+        const r = view ? SIZE - 1 - vr : vr;
+        const c = view ? SIZE - 1 - vc : vc;
         const dark = (r + c) % 2 === 1;
         const square = document.createElement("button");
         square.type = "button";
@@ -614,9 +663,17 @@
     captureCountEl.textContent = state.captures;
     redRole.textContent = settings.mode === "challenge" ? `${profile.name.trim() || "You"} · ${profile.rating}` : "Player 1";
     blackRole.textContent = settings.mode === "local" ? "Player 2" : `${settings.mode === "challenge" ? "Level " + settings.level : "Computer"} · ${LEVELS[settings.level - 1].name}`;
-    renderCoordinates();
+    renderCoordinates(view);
     renderClocks();
     lastLanded = null;
+    // The board spins to its new side when the view changes (e.g. after each two-player move).
+    if (lastView !== null && lastView !== view) {
+      const wrap = document.querySelector(".board-wrap");
+      wrap.classList.remove("turning");
+      void wrap.offsetWidth; // restart the animation
+      wrap.classList.add("turning");
+    }
+    lastView = view;
   }
 
   function handleSquareClick(r, c) {
@@ -732,7 +789,7 @@
         $("playAgainButton").textContent = "Next level →";
       } else if (winner === RED) {
         resultTitle.textContent = "Champion!";
-        resultText.textContent = "You beat all five levels. Nobody can stop you now.";
+        resultText.textContent = `You beat all ${LEVELS.length} levels. Nobody can stop you now.`;
       } else {
         resultTitle.textContent = "Level failed";
         resultText.textContent = `${lvl.name} won this round. Ready for a rematch?`;
@@ -784,7 +841,9 @@
     return next;
   }
 
-  function evaluate(s) {
+  // Score from Black's point of view (positive is good for the computer).
+  // `pro` (Level 6 and up) adds: safe edge men, kings that stay central, and men backed up by a friend.
+  function evaluate(s, pro) {
     let score = 0;
     for (let r = 0; r < SIZE; r++) {
       for (let c = 0; c < SIZE; c++) {
@@ -793,16 +852,65 @@
         const advancement = p.king ? 0 : (p.color === BLACK ? r : SIZE - 1 - r) * 0.08;
         const back = !p.king && (p.color === BLACK ? r === 0 : r === SIZE - 1) ? 0.25 : 0;
         const center = r >= 2 && r <= 5 && c >= 2 && c <= 5 ? 0.1 : 0;
-        score += (p.color === BLACK ? 1 : -1) * ((p.king ? 5 : 3) + advancement + back + center);
+        let v = (p.king ? 5 : 3) + advancement + back + center;
+        if (pro) {
+          if (p.king) {
+            v -= (Math.abs(r - 3.5) + Math.abs(c - 3.5)) * 0.04;            // kings belong in the middle
+          } else {
+            if (c === 0 || c === SIZE - 1) v += 0.05;                       // edge men can't be jumped
+            const behind = r - (p.color === BLACK ? 1 : -1);                // the row behind this man
+            for (const dc of [-1, 1]) {
+              const f = inBounds(behind, c + dc) ? s.board[behind][c + dc] : null;
+              if (f && f.color === p.color) v += 0.06;                      // a friend covers the back
+            }
+          }
+        }
+        score += (p.color === BLACK ? 1 : -1) * v;
       }
     }
     return score;
   }
 
+  const TIMEOUT = Symbol("timeout");
+  const EPS = 1e-6;
+  let search = { deadline: Infinity, nodes: 0, pro: false };
+
+  // Every capture turn available to a color.
+  function captureTurns(s, color) {
+    const out = [];
+    for (let r = 0; r < SIZE; r++) {
+      for (let c = 0; c < SIZE; c++) {
+        const p = s.board[r][c];
+        if (p && p.color === color) out.push(...captureSequences(s.board, r, c));
+      }
+    }
+    return out;
+  }
+
+  // Keeps looking through capture trades past the search depth, so the computer
+  // doesn't stop in the middle of an exchange. Captures are optional, so standing still is allowed.
+  function settle(s, alpha, beta, extra) {
+    const stand = evaluate(s, true);
+    const caps = extra > 0 ? captureTurns(s, s.turn) : [];
+    if (!caps.length) return stand;
+    const maximizing = s.turn === BLACK;
+    let best = stand;
+    if (maximizing ? best >= beta : best <= alpha) return best;
+    if (maximizing) alpha = Math.max(alpha, best); else beta = Math.min(beta, best);
+    for (const move of caps) {
+      const v = settle(applyTurn(s, move), alpha, beta, extra - 1);
+      if (maximizing) { best = Math.max(best, v); alpha = Math.max(alpha, best); }
+      else { best = Math.min(best, v); beta = Math.min(beta, best); }
+      if (beta <= alpha) break;
+    }
+    return best;
+  }
+
   function minimax(s, depth, alpha, beta) {
+    if ((++search.nodes & 255) === 0 && Date.now() > search.deadline) throw TIMEOUT;
     const moves = allTurnMoves(s, s.turn);
     if (!moves.length) return s.turn === BLACK ? -1000 - depth : 1000 + depth;
-    if (depth === 0) return evaluate(s);
+    if (depth === 0) return search.pro ? settle(s, alpha, beta, 4) : evaluate(s, false);
     const maximizing = s.turn === BLACK;
     let best = maximizing ? -Infinity : Infinity;
     for (const move of moves) {
@@ -814,16 +922,30 @@
     return best;
   }
 
+  // Looks 1 turn ahead, then 2, then 3 ... until it reaches the level's depth or runs out of
+  // thinking time, and plays the best move from the last depth it fully finished.
   function chooseComputerMove(s, level) {
     const moves = allTurnMoves(s, BLACK);
     if (!moves.length) return null;
-    const { depth, blunder } = LEVELS[level - 1];
+    const { depth, blunder, ms = Infinity, pro = false } = LEVELS[level - 1];
     if (!depth || Math.random() < blunder) return moves[Math.floor(Math.random() * moves.length)];
-    let bestScore = -Infinity, best = [];
-    for (const move of moves) {
-      const score = minimax(applyTurn(s, move), depth - 1, -Infinity, Infinity);
-      if (score > bestScore) { bestScore = score; best = [move]; }
-      else if (score === bestScore) best.push(move);
+    search = { deadline: Date.now() + ms, nodes: 0, pro };
+    let order = moves, best = [moves[0]];
+    for (let d = 1; d <= depth; d++) {
+      let bestScore = -Infinity, found = [];
+      try {
+        for (const move of order) {
+          const score = minimax(applyTurn(s, move), d - 1, bestScore - EPS, Infinity);
+          if (score > bestScore + EPS) { bestScore = score; found = [move]; }
+          else if (score >= bestScore - EPS) found.push(move);
+        }
+      } catch (e) {
+        if (e === TIMEOUT) break; // out of time: keep the last finished depth
+        throw e;
+      }
+      best = found;
+      order = [...found, ...order.filter(m => !found.includes(m))]; // try the best moves first next time
+      if (Math.abs(bestScore) >= 1000) break; // a forced win (or loss) is already clear
     }
     return best[Math.floor(Math.random() * best.length)];
   }
@@ -832,7 +954,10 @@
     aiThinking = true;
     updateStatus("Computer is thinking…", "The computer is choosing a move.");
     aiTimer = setTimeout(() => {
+      tick();                                   // settle the clocks before the search blocks the page
+      if (gameOver) return;
       const seq = chooseComputerMove(state, settings.level);
+      tick();                                   // the thinking time comes off the computer's clock, not the player's
       if (!seq || gameOver) { aiThinking = false; return; }
       playAISteps(seq.steps, 0);
     }, 350);
@@ -878,7 +1003,6 @@
 
   const startModal = $("startModal");
   const welcomeModal = $("welcomeModal");
-  const setupTime = $("setupTime");
   const modeInputs = document.querySelectorAll('input[name="startMode"]');
   const chosenMode = () => document.querySelector('input[name="startMode"]:checked').value;
 
@@ -915,7 +1039,7 @@
   });
   $("resetProgress").addEventListener("click", () => confirmDialog({
     icon: "🗑️", eyebrow: "LEVEL CHALLENGE", title: "Reset progress?",
-    text: "Levels 2 to 5 will lock again. Your rating and stats are kept.", ok: "Reset", cancel: "Cancel",
+    text: `Levels 2 to ${LEVELS.length} will lock again. Your rating and stats are kept.`, ok: "Reset", cancel: "Cancel",
   }, () => {
     cleared = 0;
     saveProgress();
@@ -943,7 +1067,6 @@
     updateStatus("Choose a game mode", "Pick how you want to play to begin.");
     document.querySelector(`input[name="startMode"][value="${settings.mode}"]`).checked = true;
     pickedLevel = Math.min(cleared + 1, LEVELS.length);
-    setupTime.value = String(settings.time);
     syncSetup();
     renderLadder();
     welcomeModal.hidden = !welcome;
@@ -955,7 +1078,6 @@
   $("startGameButton").addEventListener("click", () => {
     settings.mode = chosenMode();
     settings.level = settings.mode === "challenge" ? pickedLevel : 1; // Practice always uses the easiest computer
-    settings.time = Number(setupTime.value);
     getAudio();
     closeModal(startModal, startNewGame);
   });
@@ -994,7 +1116,16 @@
   $("tutSkip").addEventListener("click", closeTutorial);
   $("undoButton").addEventListener("click", undoMove);
   $("hintButton").addEventListener("click", toggleHints);
-  $("flipButton").addEventListener("click", () => { flipped = !flipped; render(); });
+  $("flipButton").addEventListener("click", () => {
+    if (settings.mode === "local") {
+      flipped = viewFlipped(); // switching the turn view off keeps the board as it is now
+      perspective = !perspective;
+      updateFlipButton();
+    } else {
+      flipped = !flipped;
+    }
+    render();
+  });
   $("soundButton").addEventListener("click", e => {
     muted = !muted;
     e.currentTarget.textContent = muted ? "🔇 Sound off" : "🔊 Sound on";

@@ -58,13 +58,13 @@
           <div class="player-row">
             <span class="piece-preview red-piece" aria-hidden="true"></span>
             <div class="player-info"><strong>Red</strong><span id="redRole">Player 1</span></div>
-            <span class="clock" id="redClock" role="timer">5:00</span>
+            <span class="clock" id="redClock" role="timer">10:00</span>
             <strong class="piece-count" id="redCount">12</strong>
           </div>
           <div class="player-row">
             <span class="piece-preview black-piece" aria-hidden="true"></span>
             <div class="player-info"><strong>Black</strong><span id="blackRole">Player 2</span></div>
-            <span class="clock" id="blackClock" role="timer">5:00</span>
+            <span class="clock" id="blackClock" role="timer">10:00</span>
             <strong class="piece-count" id="blackCount">12</strong>
           </div>
           <div class="stats-row">
@@ -148,16 +148,7 @@
         <div class="level-grid" id="levelGrid" role="radiogroup" aria-labelledby="levelPickerLabel"></div>
         <p class="level-caption" id="levelCaption" aria-live="polite"></p>
       </div>
-      <div class="setup-row">
-        <div class="control-group">
-          <label for="setupTime">Time per player</label>
-          <select id="setupTime">
-            <option value="300" selected>5 minutes</option>
-            <option value="600">10 minutes</option>
-            <option value="900">15 minutes</option>
-          </select>
-        </div>
-      </div>
+      <p class="setup-note">⏱️ Every match is <strong>10 minutes</strong> per player.</p>
       <button id="startGameButton" class="button button-primary" type="button">Start game</button>
     </section>
   </div>
