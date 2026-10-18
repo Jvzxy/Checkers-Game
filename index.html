@@ -19,7 +19,7 @@
       </div>
       <div class="topbar-actions">
         <button id="ratingPill" class="rating-pill" type="button" aria-label="Open leaderboard"></button>
-        <button id="tutorialTop" class="button button-secondary" type="button">? How to play</button>
+        <button id="tutorialTop" class="button button-secondary" type="button">How to play?</button>
         <button id="newGameTop" class="button button-primary" type="button">New game</button>
       </div>
     </header>
@@ -99,10 +99,6 @@
         </section>
       </aside>
     </section>
-
-    <footer class="footer">
-      <span>CHECKERS PROJECT</span>
-    </footer>
   </main>
 
   <div id="welcomeModal" class="modal-backdrop" hidden>
@@ -210,6 +206,19 @@
       <ol class="lb-list" id="lbList"></ol>
       <div class="lb-stats" id="lbStats"></div>
       <button id="lbClose" class="button button-primary" type="button">Close</button>
+    </section>
+  </div>
+
+  <div id="confirmModal" class="modal-backdrop" hidden>
+    <section class="modal panel confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmText">
+      <div class="result-icon confirm-icon" id="confirmIcon" aria-hidden="true">⚠️</div>
+      <p class="eyebrow" id="confirmEyebrow"></p>
+      <h2 id="confirmTitle"></h2>
+      <p id="confirmText"></p>
+      <div class="tut-actions">
+        <button id="confirmCancel" class="button button-secondary" type="button">Cancel</button>
+        <button id="confirmOk" class="button button-danger" type="button">Confirm</button>
+      </div>
     </section>
   </div>
 

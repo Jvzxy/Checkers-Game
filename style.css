@@ -320,3 +320,12 @@ select:focus-visible, button:focus-visible { outline: 2px solid #70b2ff; outline
 .rating-change em.demo { background: #64233766; color: #ff8798; }
 @media (max-width: 480px) { .lb-profile { grid-template-columns: auto 1fr; } .lb-rating { grid-column: 1 / -1; text-align: center; } }
 @media (prefers-reduced-motion: reduce) { .lb-list li.me, .rating-change { animation: none !important; } }
+
+
+/* Confirmation dialog */
+.confirm-modal { width: min(400px, 100%); }
+.confirm-modal h2 { margin-bottom: 8px; }
+.confirm-modal #confirmText { margin: 0 0 8px; }
+.confirm-icon { color: #ff8798; background: #ff4d681a; }
+.button-danger { background: #e5484d; color: #fff; box-shadow: 0 6px 18px #e5484d33; }
+.button-danger:hover { background: #ff6369; }

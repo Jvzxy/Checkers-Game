@@ -235,6 +235,7 @@
   const tierOf = r => [...TIERS].reverse().find(t => r >= t.min);
   const esc = str => str.replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
   const leaderboardModal = $("leaderboardModal");
+  const confirmModal = $("confirmModal");
 
   function loadProfile() {
     try {
@@ -309,6 +310,33 @@
   $("lbClose").addEventListener("click", closeLeaderboard);
   document.addEventListener("keydown", e => { if (e.key === "Escape" && !leaderboardModal.hidden) closeLeaderboard(); });
   renderRatingPill();
+
+  /* ---------- Confirmation dialog (replaces the browser's confirm box) ---------- */
+
+  let pendingConfirm = null;
+  const rankedInProgress = () => started && !gameOver && settings.mode === "challenge" && state.moves > 0;
+
+  function confirmDialog({ icon, eyebrow, title, text, ok, cancel }, onYes) {
+    $("confirmIcon").textContent = icon;
+    $("confirmEyebrow").textContent = eyebrow;
+    $("confirmTitle").textContent = title;
+    $("confirmText").textContent = text;
+    $("confirmOk").textContent = ok;
+    $("confirmCancel").textContent = cancel;
+    pendingConfirm = onYes;
+    confirmModal.hidden = false;
+    $("confirmCancel").focus(); // the safe choice is focused by default
+  }
+
+  function answerConfirm(yes) {
+    const action = pendingConfirm;
+    pendingConfirm = null;
+    closeModal(confirmModal, () => { if (yes && action) action(); });
+  }
+
+  $("confirmOk").addEventListener("click", () => answerConfirm(true));
+  $("confirmCancel").addEventListener("click", () => answerConfirm(false));
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && !confirmModal.hidden) answerConfirm(false); });
 
   /* ---------- Sound ---------- */
 
@@ -395,7 +423,7 @@
     const now = Date.now();
     const dt = now - lastTick;
     lastTick = now;
-    if (gameOver || !started || !state || !tutorialModal.hidden || !leaderboardModal.hidden) return; // paused while a help/leaderboard screen is open
+    if (gameOver || !started || !state || !tutorialModal.hidden || !leaderboardModal.hidden || !confirmModal.hidden) return; // paused while a help/leaderboard screen is open
     const color = state.turn;
     const before = Math.ceil(clocks[color] / 1000);
     clocks[color] -= dt;
@@ -885,13 +913,15 @@
     pickedLevel = n;
     renderLevelPicker();
   });
-  $("resetProgress").addEventListener("click", () => {
-    if (!window.confirm("Reset your Level Challenge progress?")) return;
+  $("resetProgress").addEventListener("click", () => confirmDialog({
+    icon: "🗑️", eyebrow: "LEVEL CHALLENGE", title: "Reset progress?",
+    text: "Levels 2 to 5 will lock again. Your rating and stats are kept.", ok: "Reset", cancel: "Cancel",
+  }, () => {
     cleared = 0;
     saveProgress();
     pickedLevel = 1;
     renderLevelPicker();
-  });
+  }));
 
   // Shows a fresh board behind the start screen. Nothing runs until the player presses Start.
   function openSetup(welcome = false) {
@@ -939,11 +969,14 @@
 
   $("newGameTop").addEventListener("click", () => {
     // Leaving a ranked match that has started counts as a loss.
-    if (started && !gameOver && settings.mode === "challenge" && state.moves > 0) {
-      if (!window.confirm("Leave this ranked match? It will count as a loss.")) return;
-      applyRating(false, settings.level);
-    }
-    openSetup();
+    if (!rankedInProgress()) { openSetup(); return; }
+    confirmDialog({
+      icon: "⚠️", eyebrow: "RANKED MATCH", title: "Leave this match?",
+      text: "Leaving a ranked match counts as a loss and costs you rating.", ok: "Leave match", cancel: "Keep playing",
+    }, () => {
+      if (rankedInProgress()) applyRating(false, settings.level);
+      openSetup();
+    });
   });
   $("playAgainButton").addEventListener("click", () => {
     if (resultAction === "again") { openSetup(); return; }
